@@ -53,6 +53,9 @@ var Algorithms = []string{
 	"RSA", "DSA", "DH", "ECC", "ECDSA", "ECDH", "EdDSA", "X25519",
 	// Post-quantum (NIST FIPS 203/204/205).
 	"ML-KEM", "ML-DSA", "SLH-DSA",
+	// Post-quantum, not NIST-standardised: Streamlined NTRU Prime, used in
+	// OpenSSH's default sntrup761x25519-sha512 key exchange.
+	"sntrup761",
 	// Symmetric ciphers.
 	"AES", "DES", "3DES", "RC4", "ChaCha20",
 	// Hashes.

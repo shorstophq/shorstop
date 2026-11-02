@@ -1,0 +1,19 @@
+2	ssh-kex	sntrup761	kem	0					KexAlgorithms sntrup761x25519-sha512@openssh.com,mlkem768x25519-sha256,curve25519-sha256,diffie-hellman-group14-sha1,-e…
+2	ssh-kex	X25519	key-agree	255					KexAlgorithms sntrup761x25519-sha512@openssh.com,mlkem768x25519-sha256,curve25519-sha256,diffie-hellman-group14-sha1,-e…
+2	ssh-kex	ML-KEM	kem	0		ML-KEM-768			KexAlgorithms sntrup761x25519-sha512@openssh.com,mlkem768x25519-sha256,curve25519-sha256,diffie-hellman-group14-sha1,-e…
+2	ssh-kex	DH	key-agree	2048					KexAlgorithms sntrup761x25519-sha512@openssh.com,mlkem768x25519-sha256,curve25519-sha256,diffie-hellman-group14-sha1,-e…
+2	ssh-kex	SHA-1	hash	0					KexAlgorithms sntrup761x25519-sha512@openssh.com,mlkem768x25519-sha256,curve25519-sha256,diffie-hellman-group14-sha1,-e…
+3	ssh-cipher	ChaCha20	ae	0					Ciphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-ctr,3des-cbc,blowfish-cbc
+3	ssh-cipher	AES	block-cipher	256	GCM				Ciphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-ctr,3des-cbc,blowfish-cbc
+3	ssh-cipher	AES	block-cipher	128	CTR				Ciphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-ctr,3des-cbc,blowfish-cbc
+3	ssh-cipher	3DES	block-cipher	168	CBC				Ciphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-ctr,3des-cbc,blowfish-cbc
+4	ssh-mac	SHA-256	mac	0					MACs hmac-sha2-256-etm@openssh.com,hmac-sha1,umac-64@openssh.com
+4	ssh-mac	SHA-1	mac	0					MACs hmac-sha2-256-etm@openssh.com,hmac-sha1,umac-64@openssh.com
+5	ssh-key-algorithm	EdDSA	signature	255					HostKeyAlgorithms ssh-ed25519,ecdsa-sha2-nistp384,ssh-rsa,rsa-sha2-512-cert-v01@openssh.com
+5	ssh-key-algorithm	ECDSA	signature	384					HostKeyAlgorithms ssh-ed25519,ecdsa-sha2-nistp384,ssh-rsa,rsa-sha2-512-cert-v01@openssh.com
+5	ssh-key-algorithm	RSA	signature	0					HostKeyAlgorithms ssh-ed25519,ecdsa-sha2-nistp384,ssh-rsa,rsa-sha2-512-cert-v01@openssh.com
+5	ssh-key-algorithm	SHA-1	hash	0					HostKeyAlgorithms ssh-ed25519,ecdsa-sha2-nistp384,ssh-rsa,rsa-sha2-512-cert-v01@openssh.com
+5	ssh-key-algorithm	SHA-512	hash	0					HostKeyAlgorithms ssh-ed25519,ecdsa-sha2-nistp384,ssh-rsa,rsa-sha2-512-cert-v01@openssh.com
+6	ssh-key-algorithm	DSA	signature	0					PubkeyAcceptedAlgorithms +ssh-dss,sk-ssh-ed25519@openssh.com
+6	ssh-key-algorithm	SHA-1	hash	0					PubkeyAcceptedAlgorithms +ssh-dss,sk-ssh-ed25519@openssh.com
+6	ssh-key-algorithm	EdDSA	signature	255					PubkeyAcceptedAlgorithms +ssh-dss,sk-ssh-ed25519@openssh.com

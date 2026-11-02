@@ -1,0 +1,12 @@
+3	tls-cipher	ECDH	key-agree	0					ssl-default-bind-ciphers ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-SHA
+3	tls-cipher	ECDSA	signature	0					ssl-default-bind-ciphers ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-SHA
+3	tls-cipher	AES	block-cipher	256	GCM				ssl-default-bind-ciphers ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-SHA
+3	tls-cipher	SHA-384	kdf	0					ssl-default-bind-ciphers ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-SHA
+3	tls-cipher	RSA	signature	0					ssl-default-bind-ciphers ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-SHA
+3	tls-cipher	AES	block-cipher	128	CBC				ssl-default-bind-ciphers ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-SHA
+3	tls-cipher	SHA-1	mac	0					ssl-default-bind-ciphers ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-SHA
+4	tls-cipher	AES	block-cipher	128	GCM				ssl-default-bind-ciphersuites TLS_AES_128_GCM_SHA256
+4	tls-cipher	SHA-256	kdf	0					ssl-default-bind-ciphersuites TLS_AES_128_GCM_SHA256
+5	tls-protocol-version			0			protocol	TLSv1.1	ssl-min-ver TLSv1.1
+5	tls-protocol-version			0			protocol	TLSv1.2	ssl-min-ver TLSv1.1
+5	tls-protocol-version			0			protocol	TLSv1.3	ssl-min-ver TLSv1.1

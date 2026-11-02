@@ -1,0 +1,2 @@
+2	ssh-kex	DH	key-agree	1024					KexAlgorithms=diffie-hellman-group1-sha1
+2	ssh-kex	SHA-1	hash	0					KexAlgorithms=diffie-hellman-group1-sha1

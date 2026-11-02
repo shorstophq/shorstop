@@ -44,6 +44,7 @@ type Finding struct {
 	Mode         string       // CBC, GCM, ECB ...
 	AssetType    string       // CycloneDX assetType; "" means AssetAlgorithm
 	MaterialType string       // AssetMaterial only: MaterialPrivateKey or MaterialPublicKey
+	Protocol     string       // AssetProtocol only: a TLS/SSL version, e.g. "TLSv1.0" or "SSLv3"
 	Cert         *Certificate // AssetCertificate only
 	File         string       // set by the crawler, not the detector
 	Line         int          // 1-based; 0 for binary files
@@ -57,6 +58,17 @@ const (
 	AssetAlgorithm   = "algorithm"
 	AssetCertificate = "certificate"
 	AssetMaterial    = "related-crypto-material"
+	AssetProtocol    = "protocol"
+)
+
+// TLS and SSL versions, as Finding.Protocol spells them.
+const (
+	SSLv2  = "SSLv2"
+	SSLv3  = "SSLv3"
+	TLSv10 = "TLSv1.0"
+	TLSv11 = "TLSv1.1"
+	TLSv12 = "TLSv1.2"
+	TLSv13 = "TLSv1.3"
 )
 
 // Finding.MaterialType values, named as in CycloneDX 1.6

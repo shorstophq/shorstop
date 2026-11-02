@@ -180,8 +180,9 @@ rules:
     primitive: block-cipher
     match:
       keywords: [aes]
-      pattern: '(?i)\baes[-_]?(?P<bits>128|192|256)[-_]?(?P<mode>ecb|cbc|ctr|gcm|cfb|ofb|ccm|xts|ocb)\b'
-      examples: ['openssl enc -aes-256-cbc -in secret.txt', 'crypto.createCipheriv(''aes-128-ecb'', key, null)', 'CIPHER = "AES_128_GCM"']
+      # (?:^|[^!\w]) instead of \b: "!AES128-CBC" in a cipher string disables it.
+      pattern: '(?i)(?:^|[^!\w])aes[-_]?(?P<bits>128|192|256)[-_]?(?P<mode>ecb|cbc|ctr|gcm|cfb|ofb|ccm|xts|ocb)\b'
+      examples: ['openssl enc -aes-256-cbc -in secret.txt', 'crypto.createCipheriv(''aes-128-ecb'', key, null)', 'CIPHER = "AES_128_GCM"', 'aes128-ctr']
 
   - id: generic-rsa-bits
     description: An RSA key-size string such as RSA-2048 or rsa:4096.
@@ -200,8 +201,9 @@ rules:
     key_size: 168
     match:
       keywords: [des-ede3, des-cbc3, 3des, tripledes, triple-des, desede]
-      pattern: '(?i)\b(?:des-ede3(?:-cbc)?|des-cbc3|3des|triple-?des|desede)\b'
-      examples: ['openssl enc -des-ede3-cbc', 'algorithm: TripleDES', 'ssh -c 3des-cbc host', 'ssl_ciphers DES-CBC3-SHA;']
+      # (?:^|[^!\w]) instead of \b: "!3DES" in a cipher string disables it.
+      pattern: '(?i)(?:^|[^!\w])(?:des-ede3(?:-cbc)?|des-cbc3|3des|triple-?des|desede)\b'
+      examples: ['openssl enc -des-ede3-cbc', 'algorithm: TripleDES', 'ssh -c 3des-cbc host', 'ssl_ciphers DES-CBC3-SHA;', '3DES']
 
   - id: generic-rc4
     description: An RC4 cipher name in quotes; RC4 is broken today.
@@ -252,6 +254,135 @@ rules:
       keywords: [mlkem768x25519]
       pattern: '(?i)\bmlkem768x25519-sha256\b'
       examples: ['KexAlgorithms mlkem768x25519-sha256,curve25519-sha256']
+
+  # ---------- Any language: shell commands (Dockerfiles, CI scripts, Makefiles, docs) ----------
+  - id: generic-openssl-genrsa
+    description: Generates an RSA key with openssl genrsa; the key size is read when given.
+    detector: regex
+    algorithm: RSA
+    match:
+      keywords: [genrsa]
+      pattern: '(?i)\bopenssl\s+genrsa\b(?:[^|;&]*\s(?P<bits>512|768|1024|2048|3072|4096|8192)\b)?'
+      examples: ['RUN openssl genrsa -out server.key 2048', 'openssl genrsa > key.pem']
+
+  - id: generic-openssl-genpkey-rsa
+    description: Generates an RSA key with openssl genpkey; the key size is read from rsa_keygen_bits.
+    detector: regex
+    algorithm: RSA
+    match:
+      keywords: [genpkey]
+      pattern: '(?i)\bopenssl\s+genpkey\b[^|;&]*-algorithm\s+RSA\b(?:[^|;&]*rsa_keygen_bits:(?P<bits>\d+))?'
+      examples: ['openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out k.pem']
+
+  - id: generic-openssl-genpkey-ec
+    description: Generates an elliptic-curve key with openssl genpkey; broken by Shor's algorithm.
+    detector: regex
+    algorithm: ECC
+    match:
+      keywords: [genpkey]
+      pattern: '(?i)\bopenssl\s+genpkey\b[^|;&]*-algorithm\s+EC\b'
+      examples: ['openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256']
+
+  - id: generic-openssl-genpkey-ed25519
+    description: Generates an Ed25519 key with openssl genpkey; EdDSA is broken by Shor's algorithm.
+    detector: regex
+    algorithm: EdDSA
+    primitive: signature
+    key_size: 255
+    match:
+      keywords: [genpkey]
+      pattern: '(?i)\bopenssl\s+genpkey\b[^|;&]*-algorithm\s+ED25519\b'
+      examples: ['openssl genpkey -algorithm ed25519 -out ed.pem']
+
+  - id: generic-openssl-genpkey-x25519
+    description: Generates an X25519 key with openssl genpkey; broken by Shor's algorithm.
+    detector: regex
+    algorithm: X25519
+    primitive: key-agree
+    key_size: 255
+    match:
+      keywords: [genpkey]
+      pattern: '(?i)\bopenssl\s+genpkey\b[^|;&]*-algorithm\s+X25519\b'
+      examples: ['openssl genpkey -algorithm X25519 -out x.pem']
+
+  - id: generic-openssl-ecparam
+    description: Generates or uses elliptic-curve parameters with openssl ecparam; broken by Shor's algorithm.
+    detector: regex
+    algorithm: ECC
+    match:
+      keywords: [ecparam]
+      pattern: '(?i)\bopenssl\s+ecparam\b'
+      examples: ['openssl ecparam -name prime256v1 -genkey -noout -out ec.key']
+
+  - id: generic-openssl-dhparam
+    description: Generates Diffie-Hellman parameters with openssl dhparam; the size is read when given.
+    detector: regex
+    algorithm: DH
+    primitive: key-agree
+    match:
+      keywords: [dhparam]
+      pattern: '(?i)\bopenssl\s+dhparam\b(?:[^|;&]*\s(?P<bits>1024|2048|3072|4096|8192)\b)?'
+      examples: ['RUN openssl dhparam -out /etc/nginx/dhparam.pem 2048']
+
+  - id: generic-openssl-md5
+    description: Hashes or signs with MD5 through the openssl command; MD5 is broken today.
+    detector: regex
+    algorithm: MD5
+    primitive: hash
+    match:
+      keywords: [md5]
+      pattern: '(?i)\bopenssl\s+(?:md5\b|(?:dgst|req|x509|ca|smime|cms)\b[^|;&]*\s-md5\b)'
+      examples: ['openssl dgst -md5 file.bin', 'openssl md5 file.bin', 'openssl req -new -md5 -key k.pem']
+
+  - id: generic-openssl-sha1
+    description: Hashes or signs with SHA-1 through the openssl command; SHA-1 is broken today.
+    detector: regex
+    algorithm: SHA-1
+    primitive: hash
+    match:
+      keywords: [sha1]
+      pattern: '(?i)\bopenssl\s+(?:sha1\b|(?:dgst|req|x509|ca|smime|cms)\b[^|;&]*\s-sha1\b)'
+      examples: ['openssl req -x509 -sha1 -newkey rsa:1024', 'openssl dgst -sha1 -sign k.pem f']
+
+  - id: generic-ssh-keygen-rsa
+    description: Generates an RSA SSH key; the size is read when -b follows -t.
+    detector: regex
+    algorithm: RSA
+    match:
+      keywords: [ssh-keygen]
+      pattern: '\bssh-keygen\b[^|;&]*\s-t\s*rsa\b(?:[^|;&]*\s-b\s*(?P<bits>\d+))?'
+      examples: ['RUN ssh-keygen -t rsa -b 4096 -N "" -f /root/.ssh/id_rsa', 'ssh-keygen -q -t rsa']
+
+  - id: generic-ssh-keygen-dsa
+    description: Generates a DSA SSH key; DSA is broken by Shor's algorithm and removed from OpenSSH.
+    detector: regex
+    algorithm: DSA
+    primitive: signature
+    match:
+      keywords: [ssh-keygen]
+      pattern: '\bssh-keygen\b[^|;&]*\s-t\s*dsa\b'
+      examples: ['ssh-keygen -t dsa -f key']
+
+  - id: generic-ssh-keygen-ecdsa
+    description: Generates an ECDSA SSH key; the size is read when -b follows -t.
+    detector: regex
+    algorithm: ECDSA
+    primitive: signature
+    match:
+      keywords: [ssh-keygen]
+      pattern: '\bssh-keygen\b[^|;&]*\s-t\s*ecdsa\b(?:[^|;&]*\s-b\s*(?P<bits>256|384|521))?'
+      examples: ['ssh-keygen -t ecdsa -b 384 -f key']
+
+  - id: generic-ssh-keygen-ed25519
+    description: Generates an Ed25519 SSH key; EdDSA is broken by Shor's algorithm.
+    detector: regex
+    algorithm: EdDSA
+    primitive: signature
+    key_size: 255
+    match:
+      keywords: [ssh-keygen]
+      pattern: '\bssh-keygen\b[^|;&]*\s-t\s*ed25519\b'
+      examples: ['ssh-keygen -t ed25519 -C "me@example.com"', 'ssh-keygen -t ed25519-sk']
 
   # ---------- Python ----------
   - id: py-pycryptodome-rsa

@@ -110,6 +110,30 @@ Copies the rule's fields into a `Finding`. A size read from the code wins over t
 ### `rules.Algorithms` gains `MD2`
 X.509 can name `MD2WithRSA`, and the closed set must cover every name any detector emits, not only rule-pack names. `TestAlgorithmNamesAreKnown` (cert package) enforces this for the cert detector's mappings.
 
+### `rules.Algorithms` gains `sntrup761` (added with the config detector)
+Streamlined NTRU Prime, the post-quantum half of OpenSSH's **default** key exchange since 9.0 (`sntrup761x25519-sha512`). It's not NIST-standardised, so it gets its own name rather than being folded into ML-KEM: the classifier can rate it "quantum-resistant, non-NIST" separately. Spelled the way OpenSSH spells it, because no other common name exists.
+
+---
+
+## `internal/detect/detect.go` — `Protocol` and the TLS version constants (added with the config detector)
+- **`AssetProtocol = "protocol"`** (CycloneDX's assetType) and **`Finding.Protocol`**, which holds one of `SSLv2`, `SSLv3`, `TLSv1.0` … `TLSv1.3`. An enabled TLS version is a protocol asset, not an algorithm, and RFC 8996 deprecates TLS 1.0/1.1 regardless of cipher. The classifier rates these.
+- **One string field** rather than CycloneDX's split type/version: every protocol finding so far is TLS. The CBOM reporter splits `TLSv1.2` into `tls` + `1.2`. Revisit when an IPsec or SSH protocol-version finding appears.
+- The version spellings are fixed constants, so every detector and the classifier use the same strings (`TLSv1` and `TLSv1.0` both become `TLSv1.0`).
+
+## `internal/detect/dedupe.go` (added with the config detector)
+
+### `func Dedupe(fs []Finding) []Finding`
+- **What it does:** merges findings that say the same thing about the same line. Used by the crawler (across detectors) and by the config detector (many suites on one line share ECDH and SHA-1).
+- **Rule: subsumption, not equality.** *a* subsumes *b* when they share line, algorithm, asset type, material type and protocol, and every detail *b* states (key size, mode, parameter set, primitive) *a* states the same way. *b* may leave any of them unknown. Regex's `ML-KEM` and config's `ML-KEM` with parameter set `ML-KEM-768` on one `KexAlgorithms` line are one fact, and the richer one is kept. *Option rejected:* exact equality, which would keep both of those, because they differ only in what the regex couldn't see.
+- **Conflicting details are never merged:** AES-256-GCM and AES-128-CTR on one `Ciphers` line are two configurations. Neither is a less detailed version of the other.
+- **Confidence:** the kept finding takes the higher of the two confidences. Two independent detectors agreeing is more evidence, not less.
+- **Certificates are never merged**, because a certificate finding carries its subject and dates, and two certificates can't be "the same line".
+- **Order:** the surviving findings keep their input order. When two are identical, the earlier one wins, so the result doesn't depend on loop order (the goldens are deterministic).
+- **Data structures:** an index slice stably sorted by line (findings are grouped by line without reordering `fs`), and a `[]bool` drop mask. Comparisons are O(k²) within a line group of size *k*. Lines rarely have more than a dozen findings (a long `ssl_ciphers`), so that's cheap. Filtering is in place, with no new allocation for the result.
+
+### `func subsumes(a, b *Finding) bool` / `func covers[T](a, b T) bool`
+`covers` is a generic helper ("b is unknown, or equals a") used for the four detail fields, so int and string fields use the same rule. Pointer arguments avoid copying the ~250-byte `Finding` on every comparison.
+
 ---
 
 ## `internal/detect/cert/cert.go`
@@ -130,7 +154,7 @@ Maps for O(1) extension checks. Extensions are compared **lower-cased** (`CA.CRT
 ### `func (*Detector) Detect(ctx, f) ([]Finding, error)`
 Routes by kind: key store → one finding; binary → `detectDER`; text → SSH public keys (only in `.pub`/`authorized_keys*`) plus PEM, but only after a `bytes.Contains(content, "-----BEGIN ")` pre-check. Most files fail that check, so they cost one linear scan and no allocation. Errors from each part are joined, so findings from one part survive an error in another.
 
-### `func detectPEM(ctx, content) ([]Finding, error)`
+### `func FindPEM(ctx, content) ([]Finding, error)` (was `detectPEM`; exported for the config detector's Kubernetes secrets)
 - **Finds every `-----BEGIN ` marker and decodes from each one independently.** *Option rejected:* the usual `for block, rest := pem.Decode(rest)` loop, which stops at the first malformed block and silently hides every key after it. A bundle with one broken certificate must not hide a private key further down.
 - **Line numbers are counted incrementally** (`bytes.Count` from the previous marker), so a file is scanned once overall rather than once per marker (O(n), not O(n·markers)).
 - A decoded block must have the **same type as its marker**. Otherwise `pem.Decode` may have skipped ahead to a later block, and the finding would get the wrong line.
@@ -167,7 +191,7 @@ Tries the formats in order: certificates (`ParseCertificates` handles concatenat
 
 ### `func isSSHPublicKeyFile(path) bool` / `func detectSSHPublicKeys(content) []Finding`
 - Only `*.pub` and `authorized_keys*` files. `ssh-rsa AAAA…` lines are common in documentation, and in `known_hosts` they're other people's host keys, not this project's crypto.
-- Parsed **line by line** with `ssh.ParseAuthorizedKey`, which gives line numbers (its own multi-line mode doesn't). Lines that fail are skipped without a warning, because `.pub` files often hold PEM keys instead, which `detectPEM` reports.
+- Parsed **line by line** with `ssh.ParseAuthorizedKey`, which gives line numbers (its own multi-line mode doesn't). Lines that fail are skipped without a warning, because `.pub` files often hold PEM keys instead, which `FindPEM` reports.
 - SSH certificates are unwrapped to the key they certify. The snippet is the key type (`ssh-ed25519`), never the base64 body.
 
 ### `func sshTypeInfo(t) keyDetails`
@@ -252,8 +276,113 @@ The extension is lower-cased (`Main.JAVA` counts as Java). Files with no extensi
 
 ---
 
+## `internal/detect/config/` — `config.go`, `tls.go`, `ssh.go`, `k8s.go`
+
+Reads cryptographic settings from server configuration and reports **the configuration in effect**: TLS versions, cipher strings and key-exchange groups (nginx, Apache, HAProxy, PostgreSQL, stunnel, openssl.cnf), OpenSSH algorithm lists, openssl.cnf key defaults, and certificates and keys base64-encoded in Kubernetes Secrets. No rule pack: each directive's meaning is code, not data, because it needs real parsing (removals, `all`, multi-line statements).
+
+**Why a parser and not more regex rules:** in a cipher string, `HIGH:!aNULL:!3DES` *disables* 3DES. A pattern can't tell that from enabling it, and the regex detector reported exactly this false positive on most real nginx configs. Apache's `all -SSLv3 -TLSv1` has the same problem for protocol versions.
+
+**Comments are skipped here**, unlike in the regex detector (whose comment matching was a project-owner decision about source code). This detector parses each format's syntax, so it knows what's commented out, and a commented-out directive is by definition not in effect. Validated on this machine: macOS's fully commented `/etc/ssh/sshd_config` gives no findings, and Homebrew's two `openssl.cnf` files give exactly `default_bits = 2048`.
+
+### `config.go`
+
+#### Constants: rule IDs
+`tls-protocol-version`, `tls-cipher`, `tls-group`, `ssh-kex`, `ssh-cipher`, `ssh-mac`, `ssh-key-algorithm`, `openssl-default-bits`, `openssl-default-md`. One ID per directive *kind*, not per algorithm: a suppression like "TLS 1.0 is accepted on this legacy host" targets a kind of setting. Kubernetes Secret findings keep the cert detector's IDs (`private-key-committed`, …), because they are the same finding wherever the key sits. Same never-rename rule as the rule pack.
+
+#### `type kind` / `var tlsDirectives` / `var sshDirectives`
+- **Data structure:** `map[lower-case directive name]kind`, a closed table of what each directive means. Lookups are one map access per statement.
+- **One TLS table for every format.** The names are distinctive enough not to clash (`ssl_ciphers` is nginx *and* PostgreSQL, with the same meaning). *Option rejected:* detecting the format first (is this nginx or Apache?). Files don't say what they are, nginx site files have no extension, and a per-format split would duplicate the shared cipher-string reader five times.
+- **SSH directives only in OpenSSH files** (`isSSHFile`): `Ciphers` is an SSH algorithm list there, but in stunnel it's an OpenSSL cipher string. Outside OpenSSH files `ciphers` is read as a cipher string (a stunnel fixture caught that this was first left unread).
+- Covered: nginx `ssl_*` and its `proxy_`/`grpc_`/`uwsgi_` variants, Apache `SSLProtocol`/`SSLCipherSuite`/`SSLOpenSSLConfCmd`, HAProxy `ssl-default-*`/`ssl-min-ver`, PostgreSQL `ssl_min_protocol_version`, openssl.cnf `CipherString`/`Ciphersuites`/`MinProtocol`/`Groups`/`default_bits`/`default_md`, OpenSSH `KexAlgorithms`/`Ciphers`/`MACs`/`HostKeyAlgorithms` and the `Pubkey…`/`Hostbased…`/`CASignature…` lists.
+
+#### `func (*Detector) Supports` / `isConfigFile` / `isSSHFile` / `isYAML`
+`.conf`, `.cnf`, `.cfg`; files whose name starts with `sshd_config`/`ssh_config`, or that sit in `sshd_config.d`/`ssh_config.d`; anything in nginx's `sites-available`/`sites-enabled` (those files usually have no extension); and `.yaml`/`.yml` for Kubernetes Secrets. By path only, so the crawler doesn't read every text file in full on this detector's behalf.
+
+#### `func (*Detector) Detect`
+YAML goes to `k8sSecrets`. Everything else goes through `statements` → directive lookup → `interpret`. Each finding gets the statement's first line and a snippet of that line. Confidence is always **high**: the value was parsed, not pattern-matched. The result goes through `detect.Dedupe`, because one cipher list repeats ECDH and SHA-1 across many suites, and the golden files should show what the user will see.
+
+#### `func interpret(k, v) []Finding`
+A switch on `kind`. Notable cases:
+- **Apache `SSLCipherSuite TLSv1.3 …`**: a leading protocol word is dropped before the cipher string is read.
+- **`default_bits`** means RSA, because `openssl req` generates RSA unless told otherwise. It's digits only, capped at 65,536, and anything else is ignored.
+- **`default_md`** maps through `mdNames`. `default` names no algorithm, so it's ignored.
+- **`SSLOpenSSLConfCmd`** takes a sub-command name and dispatches to the same readers (`Groups`, `CipherString`, `MinProtocol`).
+
+#### `type stmt` / `func statements(content) []stmt`
+- Splits a file into directives: `key value`, `key = value`, nginx's `key value;` (possibly continued over several lines until the `;`), and `\` line continuation (Apache, openssl.cnf).
+- **nginx multi-line**: only for keys containing `ssl_` written without `=` (PostgreSQL's `ssl_ciphers = …` has one), and **only joined if a `;` actually appears** within 20 lines. Otherwise the line stands alone. The first version joined any key containing `ssl`, which would have swallowed the lines after every Apache `SSLCipherSuite` (Apache doesn't end directives with `;`).
+- `[section]` headers, nginx `{`/`}` and XML-ish `<VirtualHost>` lines don't start with a key character, so they're skipped without special cases.
+- Snippets use the statement's **first physical line**, so they point at the directive's name.
+
+#### `func splitDirective(line)` / `func isKeyByte(c)` / `func stripComment(s)`
+- Keys are `[A-Za-z0-9_.-]`, up to 64 bytes, lower-cased for lookup. `=` is optional; whether it was present matters to the nginx rule above.
+- **Comments:** a `#` at the start of a line or after whitespace, **outside quotes**, starts a comment. `'v#1'` and `abc#def` keep their `#`. That's the shared subset of the five formats' comment rules.
+
+### `tls.go`
+
+#### `type algo`
+The value-level result (algorithm, primitive, mode, parameter set, bits) before a rule ID, line and snippet are attached. Small and comparable, so tables of them are plain map literals.
+
+#### `var tlsVersions` / `var apacheAll` / `func parseVersion` / `func protocolList` / `func minProtocol`
+- `protocolList` handles nginx's plain list and Apache's `+`/`-`/`all`, plus `!` as a removal. The result is a set, emitted oldest-first, so `+TLSv1.3 +TLSv1.1` reports 1.1 then 1.3 consistently.
+- **`all` = TLS 1.0–1.3, without SSLv3.** OpenSSL 1.1.0+ is built without SSLv3, and Apache only adds it when the library has it. *Tradeoff:* a server linked against an ancient OpenSSL would also enable SSLv3. We'd under-report it, and say so here.
+- `minProtocol` (openssl.cnf `MinProtocol`, HAProxy `ssl-min-ver`, PostgreSQL) reports the minimum **and every newer version**, so `TLSv1.1` flags 1.1 and still inventories 1.2/1.3. `None` and unknown values give nothing.
+
+#### `var cipherKeywords` / `func cipherString(v)`
+- Tokens split on `:`, `,` and whitespace. **`!` and `-` remove, `+` reorders, `@` is an option, so none of them enables anything.** `HIGH`, `MEDIUM`, `DEFAULT`, `ALL`, `aNULL` and similar name sets defined by the OpenSSL build. Expanding them would need the library's table, which changes between versions, so they report nothing. *Tradeoff:* `MEDIUM` could include 3DES on an old OpenSSL. We under-report rather than guess.
+- `EECDH+AESGCM` (both required) reports each part.
+- `cipherKeywords` holds single-algorithm terms (`RC4`, `kRSA`, `aECDSA`, `AESGCM`, …), so `EECDH+AESGCM` gives ECDH and AES-GCM.
+
+#### `func parseSuite(s)`
+- Reads both **OpenSSL** (`ECDHE-RSA-AES128-GCM-SHA256`, `DES-CBC3-SHA`) and **IANA** (`TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256`, TLS 1.3's `TLS_AES_256_GCM_SHA384`) names, using one token walker over `-`-separated tokens (IANA's `_` is normalised to `-`).
+- **Roles from position:** RSA after a key exchange signs; RSA with no key exchange before it (`TLS_RSA_WITH_…`) transports the key (`pke`).
+- **Implied RSA:** OpenSSL names with no key exchange (`AES128-SHA`, `DES-CBC3-SHA`, `RC4-MD5`) use RSA key transport, so it's added. TLS 1.3 names have no key exchange in them, and PSK/SRP suites aren't public-key, so neither gets it.
+- **AES without an AEAD mode is CBC**, since TLS has no other non-AEAD AES suites.
+- **The trailing hash gets a role-specific primitive:** `mac` (HMAC record MAC) in CBC/stream suites, `kdf` (PRF/HKDF) in AEAD suites. HMAC-SHA1 and HMAC-MD5 are not broken the way SHA-1 signatures are. The plan's correction #2 says the report mustn't overstate risk, and the primitive lets the classifier tell those cases apart.
+- Ciphers outside the closed algorithm set (Camellia, ARIA, SEED, IDEA, NULL) count as "a cipher was seen" but add no finding. A name with no cipher token at all (`TLSv1.2`, `FOO-BAR`) isn't a suite, and gives nothing.
+
+#### `func groupList(v)` / `var groupAlgos`
+Key-exchange groups (nginx `ssl_ecdh_curve`, OpenSSL `Groups`/`Curves`). **Hybrid post-quantum groups report both halves**, e.g. `X25519MLKEM768` → X25519 *and* ML-KEM with parameter set ML-KEM-768. The CBOM then shows the classical half still present, and the quantum-safe half as progress. OpenSSL 3.5's `?` (optional) and `*` (key share) prefixes are stripped; `-`/`!` entries are removals.
+
+#### `func splitAny(s, seps)`
+`strings.FieldsFunc` over the given separators plus tab, then strips quotes and drops empty fields. Every list format here is "tokens separated by some of `: , space`", possibly quoted.
+
+### `ssh.go`
+
+#### `func sshList(v, name)`
+OpenSSH lists are comma-separated. `+` (append) and `^` (prepend) enable their items; `-` removes them. **Wildcard patterns are skipped** (`ssh-*`), because they select from OpenSSH's built-in default list, which we don't have.
+
+#### `func sshKex` / `var dhGroupBits`
+`curve25519` → X25519. `sntrup761x25519` → sntrup761 + X25519. `mlkem768x25519`/`mlkem768nistp256`/`mlkem1024nistp384` → ML-KEM + the classical half. `ecdh-sha2-nistpN` → ECDH-N. `diffie-hellman-groupN` → DH at the RFC size (group1 = 1024 … group18 = 8192); `group-exchange` → DH of unknown size, because the server picks it. A `-sha1` suffix adds SHA-1 (hash). `ext-info-c`, `kex-strict-*` and GSS methods are protocol extensions, not algorithms.
+
+#### `func sshCipher` / `func sshMAC` / `func sshKeyAlg`
+- Ciphers: `aesN-ctr|cbc|gcm`, `3des-cbc`, `chacha20-poly1305` (`ae`), `arcfour*` → RC4. Blowfish and CAST-128 are outside the closed set and give nothing.
+- MACs: `hmac-sha1`/`-96`, `hmac-md5`/`-96`, `hmac-sha2-256/512`, with `-etm` variants folded in. UMAC is not a hash.
+- Key algorithms: **`ssh-rsa` reports RSA *and* SHA-1**, because that signature algorithm hashes with SHA-1 (the reason OpenSSH disabled it). `rsa-sha2-256/512` give RSA + SHA-2. Certificate (`-cert-v01`), FIDO (`sk-`) and `webauthn-` variants are reduced to the key they use.
+
+### `k8s.go`
+
+#### `func k8sSecrets(ctx, content)`
+- **Why:** a Secret's `data:` values are base64, so a committed TLS key in a manifest is invisible to the cert detector, and committed manifests are a common way keys leak. Each value is decoded (whitespace removed first, since long base64 is wrapped over lines). If it contains a PEM marker, it goes to **`cert.FindPEM`**, the cert detector's own parser, exported for this. The same parsing and the same "never print key material" rule apply.
+- `stringData:` (plain text) is left alone: the cert detector already reads the raw file, and handling it here would report each key twice.
+- Findings are placed on the line of the **data key** (`tls.key:`). The snippet is `tls.key in Secret web-tls (base64): -----BEGIN RSA PRIVATE KEY-----`, naming the key and Secret and never the value.
+- **Prefilter:** files without both `kind` and `Secret` aren't parsed as YAML. Most YAML in a repo is CI config or app settings.
+- **Templates are skipped silently** (`{{` anywhere): a Helm template is not valid YAML until rendered, and its values are placeholders. A YAML syntax error in a non-template file *is* reported as a warning, because a Secret we couldn't read might hold a key.
+- Multi-document files (`---`) are walked document by document. Non-Secret documents (ConfigMaps) are skipped.
+
+#### `func mapValue(m, key)`
+A linear lookup in a YAML mapping node's key/value pairs. Mappings in manifests have a handful of keys, so building a map would cost more than it saves.
+
+### Tests: `testdata/fixtures/config/`
+- Fixtures modelled on real configs: nginx (a removals-only cipher string that must report nothing, a multi-line list, a hybrid PQC group), an nginx site file with no extension, Apache (`all -…`, `\` continuation, TLS 1.3 prefix, `SSLOpenSSLConfCmd Groups`), sshd_config (+/−/^ lists, PQC key exchanges, a commented line), an included `sshd_config.d/*.conf`, openssl.cnf, HAProxy, PostgreSQL (`=` and quotes; `+3DES` only reorders), stunnel, a Kubernetes multi-document file (ConfigMap + TLS Secret built from the cert fixtures), and a Helm template.
+- Goldens in `config/golden/<path>.golden`, mirroring the fixture tree.
+- **Table tests per parser** (`TestCipherString`, `TestProtocols`, `TestSSHLists`, `TestStatements`) pin the semantics independently of fixtures. All of them passed on the first run, and the fixture review then found the stunnel `ciphers` gap and the duplicate-per-line output, both fixed.
+- `TestAlgorithmNamesAreKnown` checks every table entry against `rules.Algorithms`, `Primitives` and `Modes`.
+
+---
+
 ## `cmd/shorstop/main.go` — `func detectors() ([]detect.Detector, error)`
-Builds every detector from `rules.Builtin()`, in one place, so `run` stays about flags and output. A broken embedded pack exits with code 2 and `loading rules: …`. `TestBuiltinLoads` makes that unreachable for shipped builds, but the path exists for `--rules` later. Order: goast, cert, regex. Order only affects the order of findings within one file before the crawler sorts them.
+Builds every detector from `rules.Builtin()`, in one place, so `run` stays about flags and output. A broken embedded pack exits with code 2 and `loading rules: …`. `TestBuiltinLoads` makes that unreachable for shipped builds, but the path exists for `--rules` later. Order: goast, cert, config, regex. **Order matters for duplicates:** when `detect.Dedupe` finds two identical findings, the earlier detector's is kept. The parsing detectors come before regex, so the more precise rule ID survives.
 
 ---
 
@@ -348,14 +477,16 @@ Returns subexpression *i*'s text from a `FindAllSubmatchIndex` location, if it t
 - **22 `goast` rules:** every crypto import the plan lists, plus calls where the call adds information. `rsa.GenerateKey` takes its key size from argument 1. `des.NewTripleDESCipher` means 3DES, not DES. `ecdh.X25519` names the curve.
 - `crypto/mlkem` and `crypto/mldsa` (both in Go 1.27's standard library; checked with `go list std`) are included so reports show quantum-safe progress.
 - SHA-256/512/SHA-3 are included even though they're acceptable: a CBOM is an inventory, not just a list of problems.
-- **116 `regex` rules** (8 generic, 108 language-specific; added with the regex detector):
+- **129 `regex` rules** (21 generic, 108 language-specific; 116 added with the regex detector, 13 shell-command rules with the config detector):
   - 8 **generic** rules with no `languages`, run on every text file: cipher names such as `aes-256-cbc` (bits and mode captured), `RSA-2048`/`rsa:4096`, 3DES and RC4 names, the PQC names `ML-KEM-768`/`ML-DSA-65`, and the hybrid `X25519MLKEM768` TLS group and `mlkem768x25519-sha256` SSH key exchange.
   - **Language rules:** Python (PyCryptodome, pyca/cryptography, hashlib, python-rsa, liboqs), Java/Kotlin (JCA names, Bouncy Castle), JavaScript/TypeScript (Node crypto, Web Crypto, node-forge, jsrsasign), PHP (openssl, md5/sha1, mcrypt, phpseclib), C# (.NET), Ruby (OpenSSL, Digest), C/C++ (OpenSSL), Rust (rsa, dalek, p256, ml-kem crates).
   - **`java-cipher-aes-default`:** `Cipher.getInstance("AES")` is reported as **ECB**, because that is what Java silently uses. It's one of the most common real-world crypto bugs.
   - **AES-ECB rules that can't see the cipher.** `py-cryptography-aes-ecb` requires `algorithms.AES(` and `modes.ECB(` on one line. Its first version guessed "AES" from `modes.ECB(` alone and mislabelled a 3DES-ECB line in the fixtures. `cs-ecb` (`CipherMode.ECB` is normally set on its own line) keeps the guess, at **low** confidence.
   - The Java ML-KEM/ML-DSA rules match only the bare names (`"ML-KEM"`); names with a parameter set are left to the generic rules, so one call isn't reported twice.
   - Generic rules that overlap language rules (`generic-3des` vs `cs-3des` on `TripleDES.Create()`) are de-duplicated by the detector, not by weakening the patterns. See `hit.coveredBy`.
-  - Bare TLS suite names in configs (`RC4-SHA`) aren't matched; the config detector will parse `ssl_ciphers` lists properly. `DES-CBC3-SHA` is matched, because that name is unambiguous.
+  - Bare TLS suite names in configs (`RC4-SHA`) aren't matched; the config detector parses `ssl_ciphers` lists properly. `DES-CBC3-SHA` is matched, because that name is unambiguous.
+  - **`!` guard (added with the config detector):** `generic-3des` and `generic-aes-cipher-string` start with `(?:^|[^!\w])` instead of `\b`, so `ssl_ciphers HIGH:!3DES` (3DES *disabled*) isn't reported as 3DES. That line appears in most real nginx configs. RE2 has no lookbehind, so the pattern consumes the preceding character instead, which is harmless for line-level matching. `-` is still allowed before the name, because `openssl enc -des-ede3-cbc` is a command-line flag. In a cipher string `-3DES` also means removal, but it's rare, and the config detector reports such files correctly anyway.
+  - **13 shell-command rules (added with the config detector):** `openssl genrsa/genpkey/ecparam/dhparam`, `openssl … -md5/-sha1`, and `ssh-keygen -t rsa|dsa|ecdsa|ed25519`, with key sizes captured when they're on the line. The plan listed Dockerfiles under the config detector. But what a Dockerfile holds is shell commands, and the same commands appear in CI scripts, Makefiles and READMEs, so generic regex rules cover all of them at once. `[^|;&]*` keeps a match inside one command of a `&&` chain, so `openssl version && ssh-keygen -l` matches nothing.
 - **Rule IDs aren't frozen yet.** `generic-aes128-cbc` became `generic-aes-cipher-string`, and `py-cryptography-ecb` became `py-cryptography-aes-ecb`. Nothing has been released, so no suppressions exist yet. From the first release on, the header's never-rename rule applies.
 - Flow mappings (`match: { import: crypto/rsa }`) keep goast rules compact. Regex rules use block mappings with flow lists, and single-quoted patterns so `\b` reaches RE2 unescaped (a literal `'` is written `''`).
 
@@ -422,6 +553,7 @@ Returns subexpression *i*'s text from a `FindAllSubmatchIndex` location, if it t
   6. **Read up to the size seen at `Stat`, even if the file grows.** The limit holds no matter what. If a file shrinks, `ErrUnexpectedEOF` is accepted and we use what was read.
   7. **Detector errors are combined with `errors.Join`** into one per-file error. All detectors still run; one failing doesn't stop the others.
   8. **No buffer pooling (`sync.Pool`) yet.** It would cut allocations, but detectors might keep references to the content, which a pool would then overwrite: a nasty bug. Revisit only if Phase 6 benchmarks show GC pressure.
+  9. **Cross-detector duplicates are merged here** with `detect.Dedupe` (added with the config detector), after every detector has run on the file. The crawler is the only place that sees all detectors' findings for one file. Doing it in the reporters would make each of them repeat it, and a later CBOM grouping step would still count one line twice as two occurrences.
 - **Data structures:** `[]byte` buffers; `[]detect.Detector` filtered per file (`wanted`); `[]error` for joining.
 
 ### `func runDetector(ctx, d, f) ([]Finding, error)`

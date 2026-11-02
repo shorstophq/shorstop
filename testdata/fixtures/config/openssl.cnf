@@ -1,0 +1,10 @@
+# Fixture: openssl.cnf.
+[ req ]
+default_bits       = 1024
+default_md         = sha1
+distinguished_name = req_dn
+
+[ system_default_sect ]
+MinProtocol  = TLSv1.2
+CipherString = DEFAULT@SECLEVEL=2:ECDHE-RSA-AES128-SHA
+Groups       = SecP256r1MLKEM768:X25519

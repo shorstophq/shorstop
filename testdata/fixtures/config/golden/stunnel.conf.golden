@@ -1,0 +1,7 @@
+3	tls-cipher	RSA	pke	0					ciphers = AES256-SHA
+3	tls-cipher	AES	block-cipher	256	CBC				ciphers = AES256-SHA
+3	tls-cipher	SHA-1	mac	0					ciphers = AES256-SHA
+4	tls-cipher	ECDH	key-agree	0					CipherString = ECDHE-RSA-AES256-GCM-SHA384
+4	tls-cipher	RSA	signature	0					CipherString = ECDHE-RSA-AES256-GCM-SHA384
+4	tls-cipher	AES	block-cipher	256	GCM				CipherString = ECDHE-RSA-AES256-GCM-SHA384
+4	tls-cipher	SHA-384	kdf	0					CipherString = ECDHE-RSA-AES256-GCM-SHA384

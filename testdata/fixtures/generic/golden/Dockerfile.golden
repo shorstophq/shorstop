@@ -1,0 +1,5 @@
+4	generic-openssl-genrsa	RSA		2048		medium	RUN openssl genrsa -out /etc/ssl/server.key 2048 && \
+5	generic-openssl-sha1	SHA-1	hash	0		medium	openssl req -new -x509 -sha1 -key /etc/ssl/server.key -out /etc/ssl/server.crt
+6	generic-openssl-dhparam	DH	key-agree	4096		medium	RUN openssl dhparam -out /etc/nginx/dhparam.pem 4096
+7	generic-ssh-keygen-rsa	RSA		3072		medium	RUN ssh-keygen -t rsa -b 3072 -N "" -f /root/.ssh/id_rsa
+8	generic-openssl-genpkey-ed25519	EdDSA	signature	255		medium	RUN openssl genpkey -algorithm ed25519 -out /etc/ssl/ed.pem

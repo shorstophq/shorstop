@@ -1,0 +1,20 @@
+5	tls-protocol-version			0			protocol	TLSv1.0	ssl_protocols TLSv1 TLSv1.2 TLSv1.3;
+5	tls-protocol-version			0			protocol	TLSv1.2	ssl_protocols TLSv1 TLSv1.2 TLSv1.3;
+5	tls-protocol-version			0			protocol	TLSv1.3	ssl_protocols TLSv1 TLSv1.2 TLSv1.3;
+8	tls-group	X25519	key-agree	255					ssl_ecdh_curve X25519MLKEM768:X25519:prime256v1;
+8	tls-group	ML-KEM	kem	0		ML-KEM-768			ssl_ecdh_curve X25519MLKEM768:X25519:prime256v1;
+8	tls-group	ECDH	key-agree	256					ssl_ecdh_curve X25519MLKEM768:X25519:prime256v1;
+12	tls-cipher	ECDH	key-agree	0					ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-CHACHA20-POLY1305:'
+12	tls-cipher	ECDSA	signature	0					ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-CHACHA20-POLY1305:'
+12	tls-cipher	AES	block-cipher	128	GCM				ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-CHACHA20-POLY1305:'
+12	tls-cipher	SHA-256	kdf	0					ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-CHACHA20-POLY1305:'
+12	tls-cipher	RSA	signature	0					ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-CHACHA20-POLY1305:'
+12	tls-cipher	ChaCha20	ae	0					ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-CHACHA20-POLY1305:'
+12	tls-cipher	DH	key-agree	0					ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-CHACHA20-POLY1305:'
+12	tls-cipher	AES	block-cipher	256	CBC				ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-CHACHA20-POLY1305:'
+12	tls-cipher	SHA-1	mac	0					ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-CHACHA20-POLY1305:'
+12	tls-cipher	RSA	pke	0					ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-CHACHA20-POLY1305:'
+12	tls-cipher	3DES	block-cipher	168	CBC				ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-CHACHA20-POLY1305:'
+12	tls-cipher	RC4	stream-cipher	0					ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-CHACHA20-POLY1305:'
+12	tls-cipher	MD5	mac	0					ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-CHACHA20-POLY1305:'
+14	tls-protocol-version			0			protocol	TLSv1.1	proxy_ssl_protocols TLSv1.1;

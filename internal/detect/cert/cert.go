@@ -92,16 +92,18 @@ func (*Detector) Detect(ctx context.Context, f detect.File) ([]detect.Finding, e
 		out = append(out, detectSSHPublicKeys(f.Content)...)
 	}
 	if bytes.Contains(f.Content, pemBegin) {
-		found, err := detectPEM(ctx, f.Content)
+		found, err := FindPEM(ctx, f.Content)
 		out = append(out, found...)
 		errs = append(errs, err)
 	}
 	return out, errors.Join(errs...)
 }
 
-// detectPEM reports every PEM block in content. Each "-----BEGIN" marker is
-// decoded on its own, so one malformed block doesn't hide the ones after it.
-func detectPEM(ctx context.Context, content []byte) ([]detect.Finding, error) {
+// FindPEM reports every PEM block in content, with lines relative to
+// content. Each "-----BEGIN" marker is decoded on its own, so one malformed
+// block doesn't hide the ones after it. Other detectors use it for PEM they
+// have decoded themselves, such as base64 values in a Kubernetes Secret.
+func FindPEM(ctx context.Context, content []byte) ([]detect.Finding, error) {
 	var out []detect.Finding
 	var errs []error
 	line, counted := 1, 0 // line number of offset `counted`
@@ -359,7 +361,7 @@ func isSSHPublicKeyFile(p string) bool {
 
 // detectSSHPublicKeys reports each OpenSSH public key line, with its line
 // number. Lines that don't parse are skipped: .pub files also hold PEM keys,
-// which detectPEM handles.
+// which FindPEM handles.
 func detectSSHPublicKeys(content []byte) []detect.Finding {
 	var out []detect.Finding
 	for n, raw := range bytes.Split(content, []byte("\n")) {

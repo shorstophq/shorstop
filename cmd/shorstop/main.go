@@ -18,6 +18,7 @@ import (
 	"github.com/shorstop/shorstop/internal/crawler"
 	"github.com/shorstop/shorstop/internal/detect"
 	"github.com/shorstop/shorstop/internal/detect/cert"
+	"github.com/shorstop/shorstop/internal/detect/config"
 	"github.com/shorstop/shorstop/internal/detect/goast"
 	"github.com/shorstop/shorstop/internal/detect/regex"
 	"github.com/shorstop/shorstop/internal/rules"
@@ -164,6 +165,7 @@ func detectors() ([]detect.Detector, error) {
 	return []detect.Detector{
 		goast.New(pack.ForDetector(rules.DetectorGoAST)),
 		cert.New(),
+		config.New(),
 		regex.New(pack.ForDetector(rules.DetectorRegex)),
 	}, nil
 }

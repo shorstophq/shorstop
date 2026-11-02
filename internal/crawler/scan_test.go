@@ -63,7 +63,9 @@ func (d *fakeDetector) Detect(_ context.Context, f detect.File) ([]detect.Findin
 	var out []detect.Finding
 	for i, line := range strings.Split(string(f.Content), "\n") {
 		if strings.Contains(line, "RSA") {
-			out = append(out, detect.Finding{RuleID: "fake-rsa", Algorithm: "RSA", Line: i + 1})
+			// ParameterSet carries the detector name so findings from two
+			// fakes differ and survive detect.Dedupe.
+			out = append(out, detect.Finding{RuleID: "fake-rsa", Algorithm: "RSA", Line: i + 1, ParameterSet: d.name})
 		}
 	}
 	return out, d.detectErr
@@ -190,6 +192,26 @@ func TestScanDetectorFailures(t *testing.T) {
 	}
 	if msg := res.Errors[1].Error(); !strings.Contains(msg, "b.txt") || !strings.Contains(msg, "panicky: panic: boom") {
 		t.Errorf("error for b.txt = %q, want it to name the file and the panic", msg)
+	}
+}
+
+// sameDetector reports the same RSA finding as every other sameDetector.
+type sameDetector struct{ name, conf string }
+
+func (d sameDetector) Name() string               { return d.name }
+func (d sameDetector) Supports(string, bool) bool { return true }
+func (d sameDetector) Detect(context.Context, detect.File) ([]detect.Finding, error) {
+	return []detect.Finding{{RuleID: d.name, Algorithm: "RSA", Line: 1, Confidence: d.conf}}, nil
+}
+
+func TestScanMergesDuplicatesAcrossDetectors(t *testing.T) {
+	root := writeTree(t, map[string]string{"a.conf": "RSA\n"})
+	res, err := Scan(context.Background(), opts(root), []detect.Detector{sameDetector{"one", "medium"}, sameDetector{"two", "high"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Findings) != 1 || res.Findings[0].Detector != "one" || res.Findings[0].Confidence != "high" {
+		t.Errorf("got %+v; want one finding from the first detector, with the higher confidence", res.Findings)
 	}
 }
 

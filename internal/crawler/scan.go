@@ -240,6 +240,9 @@ func scanFile(ctx context.Context, opts Options, dets []detect.Detector, rel str
 			errs = append(errs, err)
 		}
 	}
+	// Two detectors can see the same line (regex and config both read
+	// "Ciphers aes128-ctr"); report it once.
+	r.findings = detect.Dedupe(r.findings)
 	r.err = errors.Join(errs...)
 	return r
 }

@@ -1,0 +1,3 @@
+3	tls-cipher	ECDH	key-agree	0					ssl_ciphers EECDH+AESGCM:EDH+AESGCM;
+3	tls-cipher	AES	block-cipher	0	GCM				ssl_ciphers EECDH+AESGCM:EDH+AESGCM;
+3	tls-cipher	DH	key-agree	0					ssl_ciphers EECDH+AESGCM:EDH+AESGCM;

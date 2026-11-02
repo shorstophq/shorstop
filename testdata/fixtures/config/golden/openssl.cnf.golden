@@ -1,0 +1,11 @@
+3	openssl-default-bits	RSA		1024					default_bits       = 1024
+4	openssl-default-md	SHA-1	hash	0					default_md         = sha1
+8	tls-protocol-version			0			protocol	TLSv1.2	MinProtocol  = TLSv1.2
+8	tls-protocol-version			0			protocol	TLSv1.3	MinProtocol  = TLSv1.2
+9	tls-cipher	ECDH	key-agree	0					CipherString = DEFAULT@SECLEVEL=2:ECDHE-RSA-AES128-SHA
+9	tls-cipher	RSA	signature	0					CipherString = DEFAULT@SECLEVEL=2:ECDHE-RSA-AES128-SHA
+9	tls-cipher	AES	block-cipher	128	CBC				CipherString = DEFAULT@SECLEVEL=2:ECDHE-RSA-AES128-SHA
+9	tls-cipher	SHA-1	mac	0					CipherString = DEFAULT@SECLEVEL=2:ECDHE-RSA-AES128-SHA
+10	tls-group	ECDH	key-agree	256					Groups       = SecP256r1MLKEM768:X25519
+10	tls-group	ML-KEM	kem	0		ML-KEM-768			Groups       = SecP256r1MLKEM768:X25519
+10	tls-group	X25519	key-agree	255					Groups       = SecP256r1MLKEM768:X25519
