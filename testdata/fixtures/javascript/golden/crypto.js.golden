@@ -1,0 +1,11 @@
+5	js-node-keypair-rsa	RSA		2048		medium	const { publicKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+6	js-node-keypair-ec	ECC		0		medium	crypto.generateKeyPair("ec", { namedCurve: "P-256" }, cb);
+7	js-node-keypair-ed25519	EdDSA	signature	255		medium	crypto.generateKeyPairSync(`ed25519`);
+8	js-node-hash-md5	MD5	hash	0		medium	const md5 = crypto.createHash('md5').update(s).digest('hex');
+9	generic-aes-cipher-string	AES	block-cipher	128	ECB	medium	const c1 = crypto.createCipheriv('aes-128-ecb', key, null);   // generic AES rule
+10	generic-3des	3DES	block-cipher	168		medium	const c2 = crypto.createCipheriv('des-ede3-cbc', key, iv);     // generic 3DES rule
+11	js-node-cipher-des	DES	block-cipher	56		medium	const c3 = crypto.createCipheriv('des-cbc', key, iv);          // single DES
+12	generic-rc4	RC4	stream-cipher	0		medium	const c4 = crypto.createCipheriv('rc4', key, '');
+13	js-webcrypto-rsa	RSA		0		medium	await crypto.subtle.generateKey({ name: "RSA-OAEP", modulusLength: 4096 }, true, ops);
+14	js-webcrypto-ecdsa	ECDSA	signature	0		medium	await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-384' }, true, ops);
+15	js-forge-rsa	RSA		1024		medium	const kp = forge.pki.rsa.generateKeyPair({ bits: 1024, e: 0x10001 });

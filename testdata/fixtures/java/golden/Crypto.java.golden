@@ -1,0 +1,16 @@
+7	java-keypairgen-rsa	RSA		0		medium	KeyPairGenerator rsa = KeyPairGenerator.getInstance("RSA");
+9	java-keypairgen-ec	ECC		0		medium	KeyPairGenerator ec = KeyPairGenerator.getInstance("EC");
+10	java-keypairgen-eddsa	EdDSA	signature	0		medium	KeyPairGenerator ed = KeyPairGenerator.getInstance("Ed25519");
+11	generic-mlkem-name	ML-KEM	kem	0		medium	KeyPairGenerator pq = KeyPairGenerator.getInstance("ML-KEM-768"); // generic-mlkem-name only
+12	java-keypairgen-mldsa	ML-DSA	signature	0		medium	KeyPairGenerator pq2 = KeyPairGenerator.getInstance("ML-DSA");
+13	java-cipher-aes-default	AES	block-cipher	0	ECB	medium	Cipher a = Cipher.getInstance("AES");                    // Java default: ECB
+14	java-cipher-aes-mode	AES	block-cipher	0	GCM	medium	Cipher b = Cipher.getInstance("AES/GCM/NoPadding");
+15	java-cipher-aes-mode	AES	block-cipher	256	CBC	medium	Cipher c = Cipher.getInstance("AES_256/CBC/PKCS5Padding");
+16	java-cipher-3des	3DES	block-cipher	168		medium	Cipher d = Cipher.getInstance("DESede/CBC/PKCS5Padding");
+17	java-cipher-rsa	RSA	pke	0		medium	Cipher e = Cipher.getInstance("RSA/ECB/OAEPWithSHA-256AndMGF1Padding");
+18	java-digest-md5	MD5	hash	0		medium	MessageDigest md = MessageDigest.getInstance("MD5");
+19	java-digest-sha1	SHA-1	hash	0		medium	MessageDigest sha = MessageDigest.getInstance("SHA-1");
+20	java-signature-rsa	RSA	signature	0		medium	Signature s = Signature.getInstance("SHA1withRSA");     // RSA signature + SHA-1
+20	java-signature-sha1	SHA-1	hash	0		medium	Signature s = Signature.getInstance("SHA1withRSA");     // RSA signature + SHA-1
+21	java-signature-ecdsa	ECDSA	signature	0		medium	Signature s2 = Signature.getInstance("SHA256withECDSA");
+22	java-keyagreement-ecdh	ECDH	key-agree	0		medium	KeyAgreement ka = KeyAgreement.getInstance("ECDH");

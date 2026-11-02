@@ -1,0 +1,2 @@
+4	js-node-keypair-x25519	X25519	key-agree	255		medium	const pair = generateKeyPairSync("x25519");
+5	js-node-hash-sha1	SHA-1	hash	0		medium	const digest: string = createHash("sha1").update(input).digest("hex");

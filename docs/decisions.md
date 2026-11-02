@@ -49,7 +49,10 @@ Each piece of state has exactly one owning goroutine, so the crawler uses **no m
 - **Counts runes, not bytes**, and cuts on a rune boundary. A byte cut would split a multi-byte character and put invalid UTF-8 into JSON/SARIF output. Invalid bytes already in the source are replaced with U+FFFD for the same reason.
 - When cut, the snippet keeps 119 runes and adds `…`, so its total length stays exactly 120 and readers can see it was truncated.
 - `TrimSpace` also removes the `\r` of CRLF files, so Windows line endings don't leak into reports.
-- *Tradeoff:* it scans from the start of the file for every finding, which is O(file size) per call. Findings are rare (a handful per file), and files are capped by `--max-file-size`, so a line-offset index isn't worth it yet. Revisit if the regex detector shows up in a profile.
+- *Tradeoff:* it scans from the start of the file for every finding, which is O(file size) per call. That's fine for goast, which has only a handful of findings per file.
+
+### `func SnippetOf(line) string` (added with the regex detector)
+The trimming and truncation half of `Snippet`, for a caller that already has the line. The regex detector walks lines itself, so going through `Snippet` would rescan the file from the top for every finding, which is O(n·findings) on a crypto-dense file. `Snippet` now calls `SnippetOf`, so there's one implementation of the truncation rules.
 
 ---
 
@@ -190,8 +193,67 @@ An explicit `switch` over every `x509.SignatureAlgorithm`, splitting each into s
 
 ---
 
+## `internal/detect/regex/regex.go`
+
+Matches the `regex` rules line by line in any text file. Measured with `BenchmarkDetect`: **~315 MB/s** on source without crypto (the common case), **~6 MB/s** on the crypto fixture repeated, where almost every line has a match. A full CLI scan of Go's source tree (10,519 files, all three detectors) takes ~0.56 s warm.
+
+### `const ctxCheckLines = 4096`
+Cancellation is checked every 4,096 lines, not on every line: `ctx.Err()` takes a lock, and 4,096 lines take well under a millisecond, so a cancelled scan still stops promptly.
+
+### `var lowerASCII [256]byte`
+A lookup table for ASCII lower case, built once. Folding a byte is one indexed load, with no branch, no allocation, and no change to line length (non-ASCII bytes map to themselves). That's why keywords must be ASCII.
+
+### `const triBits = 16` / `func triHash(tri) uint32`
+- **The keyword index.** Each keyword's first three bytes (a *trigram*, 24 bits) are hashed with a multiplicative (Fibonacci) hash to 16 bits, and that bit is set in a 65,536-bit (8 KB) filter. While scanning a line, every position's trigram is checked against the filter. Almost all positions miss, which costs one load and one AND.
+- 8 KB fits in L1/L2 cache. With ~100 distinct keywords, about 0.15 % of the bits are set, so false hits (a trigram that hashes to a set bit but begins no keyword) are rare, and each one costs a map lookup.
+
+### `type ruleSet` / `func newRuleSet(rs) *ruleSet`
+- **Data structures:** `keywords [][]byte` (distinct, lower-cased), `byKeyword [][]int` (keyword → rule indexes), `byTri map[uint32][]int` (trigram → keyword indexes), and `filter [1024]uint64` (the bit filter above). Slices indexed by integer rather than maps keyed by string everywhere except `byTri`, which is only consulted after the filter says yes.
+- Keywords shared between rules (`keypairgenerator` is used by 8 Java rules) are stored once, so each is checked once per position no matter how many rules use it.
+- **The first version** searched the whole file once per keyword (`bytes.Contains` over a lower-cased copy). Profiling showed 78 % of the time in that loop, for a cost that grew with every rule added: 44 MB/s on clean files. The single-pass trigram scan made it about 7× faster (315 MB/s), and it also removed the 16 KB lower-cased copy per file.
+- *Options rejected:* **Aho-Corasick** (optimal, but a dependency or ~200 lines of automaton code, for a gain the trigram filter mostly already captures), and **one big alternation regex of all keywords** (Go's RE2 has no literal-set acceleration, so it would be slower than the trigram scan).
+
+### `func (s *ruleSet) lineRules(dst, line, seen, stamp) []int`
+- One pass over the line with a **rolling trigram**: shift in one lower-cased byte per position, so each byte is read once. On a filter hit it looks up the keywords that start with that trigram, confirms each with `equalFoldASCII`, and adds their rules.
+- **De-duplicating without clearing:** `seen[ri] == stamp` (the stamp is the line number) means rule *ri* is already in the result. A per-line map, or clearing a bool slice for each line, would cost time on every line, including the ~99 % with no keyword. The `seen` slice is allocated once per file.
+- The result is sorted, so rules run in pack order and the findings order on a line is deterministic.
+- **Line-level, not file-level:** a pattern runs only on lines that contain one of its keywords, not on every line of a file that contains one somewhere. The second version (file-level prefilter) still ran 0.95 MB/s on crypto-heavy files, because every candidate rule's regex ran on every line. Going line-level made that about 6× faster. It relies on the keyword rule ("every line the pattern can match contains a keyword"), which `examples` check at load time.
+
+### `func equalFoldASCII(b, lower) bool`
+Compares a slice of the source with a lower-case keyword byte by byte through `lowerASCII`, with no allocation. `bytes.EqualFold` would also handle Unicode, which costs more and isn't needed.
+
+### `type Detector` / `func New(rs) *Detector`
+- **Data structure:** `byExt map[string]*ruleSet`, holding one rule set per language and shared by all of that language's extensions (`.js`, `.mjs`, `.cjs` and `.jsx` point to the same set). There's also a `generic` set for files of no known language. Every set is built at construction, so `Detect` does one map lookup per file.
+- Each language's set = generic rules + that language's rules, **in pack order**, so findings on one line come out in a stable order, and golden diffs show only real changes.
+- Read-only after `New`, so workers share it with no locks.
+
+### `func (d *Detector) setFor(path) *ruleSet` / `Supports(path, binary) bool`
+The extension is lower-cased (`Main.JAVA` counts as Java). Files with no extension or an unknown one (`Makefile`, `sshd_config`, `.md`, `.conf`) get the generic rules. `Supports` accepts any text file that has at least one applicable rule, so a detector built with no rules never makes the crawler read files in full.
+
+### `func (d *Detector) Detect(ctx, f) ([]Finding, error)`
+- **Hand-rolled line loop** (`bytes.IndexByte`) instead of `bufio.Scanner`, which the plan suggested. The crawler has already read the whole file into memory, and `Scanner` has a maximum token size (minified JavaScript lines can exceed it, and the plan's 1 MB buffer was a workaround for that) and copies each line. Slicing the content directly has no length limit and no copying. A trailing `\r` is removed, so CRLF files give the same matches and snippets.
+- **Comments are matched like code** (project-owner decision, 2026-11-02). Telling comments apart reliably needs a parser per language, and commented-out crypto is worth seeing in an inventory. False positives are handled by `// shorstop:ignore` (Phase 5), and documentation hits (Go's own tree has `3DES` in comments) are true mentions, not mistakes.
+- **One finding per distinct match per rule per line** (from `MatchAll`), minus generic findings covered by a language rule (`coveredBy`). The snippet is computed once per matching line (`SnippetOf`) and shared by all its findings.
+- `hits` and `active` are reused across lines (`[:0]`), so a file with no crypto allocates only the `seen` slice.
+- It never returns an error other than cancellation: a regex can't fail on input.
+
+### `type hit` / `func (h hit) coveredBy(line []hit) bool`
+- When a **language rule** and a **generic rule** find the **same algorithm on the same line** (`cs-3des` and `generic-3des` on `TripleDES.Create()`), only the language rule's finding is kept: its ID names the API, which is the more useful fact, and the CBOM would otherwise count one use twice.
+- Two generic rules, or two language rules, are never merged: `Signature.getInstance("SHA1withRSA")` really is RSA *and* SHA-1, and `aes256-gcm,aes128-ctr` really is two AES configurations.
+- *Option rejected:* tightening generic patterns so they can't match inside API calls. That would need a negative lookbehind, which RE2 doesn't support, and it would make generic rules miss real cipher strings.
+- O(hits²) per matching line. Lines with more than two or three hits are rare.
+
+### Tests: `testdata/fixtures/{c,csharp,generic,java,javascript,php,python,ruby,rust,typescript}/`
+- **One realistic fixture per language** using the real APIs, with goldens in `<lang>/golden/<file>.golden` (same tab-separated format as goast, plus mode). `generic/` covers a `nginx.conf`, an `sshd_config` with no extension, and a README.
+- **Each fixture ends with a "Near-misses" section**: lines that look like crypto but aren't (`hashlib.sha256`, a Java call inside a Python string, `md5sum` as a variable name, "description"/"caesar"). `TestNearMisses` fails if anything below that marker produces a finding, so a loosened pattern can't be quietly accepted into a golden file.
+- `TestLanguageSets` checks that generic rules apply everywhere, language rules only to their own extensions, and Kotlin gets the Java rules. `TestCRLFAndLastLine` checks CRLF handling and a last line with no newline. `TestCancelled` checks cancellation. `BenchmarkDetect` measures the two throughput numbers above.
+- **Reviewing the goldens found three bugs** before they shipped: only the first match per line was reported, generic and language rules double-counted the same call, and `modes.ECB()` was guessed as AES on a 3DES line. All three are fixed above.
+- **False-positive check on real code:** a throwaway dump (deleted afterwards) of the 556 regex findings in Go's source tree. I sampled every rule and found no false positives; all were real mentions of the algorithm, in code, test vectors or comments.
+
+---
+
 ## `cmd/shorstop/main.go` — `func detectors() ([]detect.Detector, error)`
-Builds every detector from `rules.Builtin()`, in one place, so `run` stays about flags and output. A broken embedded pack exits with code 2 and `loading rules: …`. `TestBuiltinLoads` makes that unreachable for shipped builds, but the path exists for `--rules` later.
+Builds every detector from `rules.Builtin()`, in one place, so `run` stays about flags and output. A broken embedded pack exits with code 2 and `loading rules: …`. `TestBuiltinLoads` makes that unreachable for shipped builds, but the path exists for `--rules` later. Order: goast, cert, regex. Order only affects the order of findings within one file before the crawler sorts them.
 
 ---
 
@@ -220,6 +282,13 @@ The rule pack: data that tells rule-driven detectors (`goast`, `regex`) what to 
 - Slices rather than maps: they keep a stable order for error messages ("known: …"), and with ~25 entries a linear `slices.Contains` costs nothing at load time.
 - `ECC` was added for `crypto/elliptic`, which is curve math under both ECDSA and ECDH, so neither name would be accurate.
 
+### `var Modes` / `var Languages` (added with the regex detector)
+- **`Modes`** is a closed set (ECB, CBC, CTR, GCM, CCM, CFB, OFB, XTS, OCB, EAX, SIV) for the same reason as `Algorithms`: the classifier keys `INSECURE_MODE` off it. A rule's fixed `mode` must be in the set, or loading fails. A captured `(?P<mode>)` value outside it (`MODE_OPENPGP`) becomes an empty mode at scan time, because a source line can say anything and the scan must not fail on it.
+- **`Languages`** is a map from language name to extensions, used by the `languages:` rule field. A map because the regex detector inverts it into extension → rule set once at construction. Each extension belongs to one language. **Kotlin and Java are separate languages** that share rules by listing both (`languages: [java, kotlin]`), so a Kotlin-only rule is possible later. `.h` counts as C. C++ headers named `.h` get the C rules only, so C++-specific rules should also list `c` if they target headers.
+
+### `func validKeyword(k) bool` / `const MinKeywordLen = 3`
+Keywords must be **printable ASCII and at least 3 bytes**. ASCII means lower-casing never changes a line's length, so the detector can compare in place without allocating a lower-cased copy. Three bytes, because the detector indexes keywords by their first trigram. Printable means a keyword can't contain a newline, so it can never span two lines. *Cost:* no non-ASCII keywords. No crypto API name needs one.
+
 ### `var idPattern` (`^[a-z0-9]+(-[a-z0-9]+)*$`)
 IDs appear in `// shorstop:ignore <rule-id>`, SARIF rule IDs and baselines, so they're restricted to characters that need no quoting anywhere. The header of `rules.yaml` says IDs are never renamed or reused, because that would silently break users' suppressions.
 
@@ -228,6 +297,11 @@ IDs appear in `// shorstop:ignore <rule-id>`, SARIF rule IDs and baselines, so t
 - `KeySizeArg` is `*int` because argument 0 is a valid index. A pointer tells "unset" apart from "0".
 - `Rule.re` is unexported and filled by `validate`, so **each regex compiles once at load**, as the plan requires. Detectors read it through `Regexp()` and can't replace it.
 - `Rule.Confidence` is filled with the detector default during validation, so consumers never handle the empty case.
+- **`Rule.Languages`** (regex only) is a top-level rule field, as in the plan's example, not inside `match`, because it says *where* a rule applies, not *what* it matches. Empty means every text file. goast rules reject it, since they're Go-only by definition.
+- **`Match.Keywords`** (regex, required): literal words, at least one of which must appear on any line the pattern can match. The detector runs a pattern only on lines containing one, which makes the scan fast with ~100 rules. *Option rejected:* deriving keywords from the pattern automatically (RE2's `syntax` package exposes literal prefixes). That only works for patterns that start with a literal, and it would hide from rule authors why a rule never fires. Explicit keywords are visible, and `examples` check them.
+- **`Match.Examples`** (regex, required): lines the pattern must match, checked **every time the pack loads**. Each must also contain a keyword (otherwise the prefilter would skip it in a real scan), and any `bits`/`mode` capture must parse. This makes every rule carry its own test, which matters most for community-contributed rules (the plan's growth engine). *Cost:* about 100 regex matches at startup, well under a millisecond.
+- **Mode uses a `(?P<mode>…)` group** like `bits`, rather than the separate `match.mode_group` field I first proposed: one convention for every capture, and nothing new for rule authors to learn.
+- `bitsIdx`/`modeIdx` are cached at load (from `SubexpIndex`), so the hot path doesn't look group names up per match.
 
 ### `func (p *Pack) ForDetector(name) []*Rule`
 Returns pointers into `p.Rules`, not copies: `Rule` is about 150 bytes and every worker shares one pack. File order is kept so results are deterministic. It's a linear scan, but each detector calls it once at construction, not once per file.
@@ -252,16 +326,38 @@ Walks the document's top mapping to the `rules` key, then reads `Line` from each
 
 ### `func (r *Rule) validate() []error`
 - Checks the shared fields, then the detector-specific `match` fields: goast needs `import`, and `key_size_arg` needs `call`; regex needs `pattern`, which must compile as RE2. Fields belonging to the other detector are rejected, so a rule can't look like it does something it doesn't.
-- `key_size` together with `key_size_arg` or a `(?P<bits>)` group is rejected: two sources for one value would be ambiguous.
-- **Mutates the rule** (default confidence, compiled regex). It's called once, on a value `Parse` owns, before the pack is returned, so nothing else can see a half-filled rule.
+- `key_size` together with `key_size_arg` or a `(?P<bits>)` group is rejected, and so is `mode` together with a `(?P<mode>)` group: two sources for one value would be ambiguous.
+- Regex rules also need valid `keywords` and `examples`, known `languages`, and a pattern that **doesn't match the empty string** (`a*` would match every line of every file).
+- **Mutates the rule** (default confidence, lower-cased keywords, compiled regex, group indexes). It's called once, on a value `Parse` owns, before the pack is returned, so nothing else can see a half-filled rule.
 - **Regex engine is Go's RE2**: linear time, so a user-supplied pattern can't cause catastrophic backtracking during a scan. The cost is no lookarounds or backreferences in rule patterns.
 
-### `rules.yaml` content (initial)
-- 22 `goast` rules: every crypto import the plan lists, plus calls where the call adds information. `rsa.GenerateKey` takes its key size from argument 1. `des.NewTripleDESCipher` means 3DES, not DES. `ecdh.X25519` names the curve.
+### `func (r *Rule) hasKeyword(lower) bool`
+Validation only: checks that an example contains a keyword. A linear `strings.Contains` per keyword is fine at load time; the detector has its own indexed version.
+
+### `const maxKeyBits` / `type LineMatch` / `func (r *Rule) MatchAll(line) []LineMatch`
+- **`MatchAll` is the only code that reads a pattern's captures**, and both example validation and the detector call it. "Examples pass" therefore means "the detector reads these lines the same way". *Option rejected:* letting the detector read capture groups itself, which would be a second implementation that could drift from what validation checked.
+- **Every match on the line, de-duplicated** (`FindAllSubmatchIndex`, then `slices.Contains` on the small `[]LineMatch`). The first version took only the first match, and a review of the golden files caught it dropping `aes128-ctr` after `aes256-gcm` on one `Ciphers` line: a real CBOM entry, lost. Identical results on one line are reported once.
+- `LineMatch` is a small comparable struct (`KeySize`, `Mode`), so de-duplication is a plain `==`.
+- **Bits must be 1 to 65,536** (`maxKeyBits`); anything else is "not a key size" and leaves the rule's own `key_size` in place. Mode is upper-cased and must be in `Modes`.
+- `matchAll`/`captures` also return a description of each unusable capture, which only validation uses: an example whose `bits` group captures `0` is a broken rule, while a real line that does the same is just an unknown size.
+
+### `func group(line, loc, i) (string, bool)`
+Returns subexpression *i*'s text from a `FindAllSubmatchIndex` location, if it took part in the match. Optional groups (`(?:…(?P<bits>\d+))?`) are common in the pack, because a key size on the next line is still a finding, just without a size.
+
+### `rules.yaml` content
+- **22 `goast` rules:** every crypto import the plan lists, plus calls where the call adds information. `rsa.GenerateKey` takes its key size from argument 1. `des.NewTripleDESCipher` means 3DES, not DES. `ecdh.X25519` names the curve.
 - `crypto/mlkem` and `crypto/mldsa` (both in Go 1.27's standard library; checked with `go list std`) are included so reports show quantum-safe progress.
 - SHA-256/512/SHA-3 are included even though they're acceptable: a CBOM is an inventory, not just a list of problems.
-- 3 `regex` rules show the pattern schema (`generic-aes128-cbc`, `generic-rsa-bits` with a `bits` group, `generic-3des`). The full regex set comes with the regex detector.
-- Flow mappings (`match: { import: crypto/rsa }`) keep each rule compact. Patterns are single-quoted, so `\b` reaches RE2 unescaped.
+- **116 `regex` rules** (8 generic, 108 language-specific; added with the regex detector):
+  - 8 **generic** rules with no `languages`, run on every text file: cipher names such as `aes-256-cbc` (bits and mode captured), `RSA-2048`/`rsa:4096`, 3DES and RC4 names, the PQC names `ML-KEM-768`/`ML-DSA-65`, and the hybrid `X25519MLKEM768` TLS group and `mlkem768x25519-sha256` SSH key exchange.
+  - **Language rules:** Python (PyCryptodome, pyca/cryptography, hashlib, python-rsa, liboqs), Java/Kotlin (JCA names, Bouncy Castle), JavaScript/TypeScript (Node crypto, Web Crypto, node-forge, jsrsasign), PHP (openssl, md5/sha1, mcrypt, phpseclib), C# (.NET), Ruby (OpenSSL, Digest), C/C++ (OpenSSL), Rust (rsa, dalek, p256, ml-kem crates).
+  - **`java-cipher-aes-default`:** `Cipher.getInstance("AES")` is reported as **ECB**, because that is what Java silently uses. It's one of the most common real-world crypto bugs.
+  - **AES-ECB rules that can't see the cipher.** `py-cryptography-aes-ecb` requires `algorithms.AES(` and `modes.ECB(` on one line. Its first version guessed "AES" from `modes.ECB(` alone and mislabelled a 3DES-ECB line in the fixtures. `cs-ecb` (`CipherMode.ECB` is normally set on its own line) keeps the guess, at **low** confidence.
+  - The Java ML-KEM/ML-DSA rules match only the bare names (`"ML-KEM"`); names with a parameter set are left to the generic rules, so one call isn't reported twice.
+  - Generic rules that overlap language rules (`generic-3des` vs `cs-3des` on `TripleDES.Create()`) are de-duplicated by the detector, not by weakening the patterns. See `hit.coveredBy`.
+  - Bare TLS suite names in configs (`RC4-SHA`) aren't matched; the config detector will parse `ssl_ciphers` lists properly. `DES-CBC3-SHA` is matched, because that name is unambiguous.
+- **Rule IDs aren't frozen yet.** `generic-aes128-cbc` became `generic-aes-cipher-string`, and `py-cryptography-ecb` became `py-cryptography-aes-ecb`. Nothing has been released, so no suppressions exist yet. From the first release on, the header's never-rename rule applies.
+- Flow mappings (`match: { import: crypto/rsa }`) keep goast rules compact. Regex rules use block mappings with flow lists, and single-quoted patterns so `\b` reaches RE2 unescaped (a literal `'` is written `''`).
 
 ---
 

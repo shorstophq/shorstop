@@ -1,0 +1,3 @@
+3	generic-rsa-bits	RSA		2048		medium	Generate a key with `openssl req -newkey rsa:2048 -nodes` and encrypt with
+4	generic-aes-cipher-string	AES	block-cipher	256	CBC	medium	`openssl enc -aes-256-cbc`. Avoid TripleDES. The words "caesar" and
+4	generic-3des	3DES	block-cipher	168		medium	`openssl enc -aes-256-cbc`. Avoid TripleDES. The words "caesar" and

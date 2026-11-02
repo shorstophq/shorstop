@@ -1,0 +1,7 @@
+6	cs-rsa	RSA		2048		medium	var rsa = new RSACryptoServiceProvider(2048);
+7	cs-rsa	RSA		0		medium	using var rsa2 = RSA.Create();
+8	cs-ecdsa	ECDSA	signature	0		medium	using var ecdsa = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+9	cs-md5	MD5	hash	0		medium	using var md5 = MD5.Create();
+10	cs-sha1	SHA-1	hash	0		medium	var sha = new SHA1Managed();
+11	cs-3des	3DES	block-cipher	168		medium	var tdes = TripleDES.Create();
+13	cs-ecb	AES	block-cipher	0	ECB	low	aes.Mode = CipherMode.ECB;

@@ -165,26 +165,1288 @@ rules:
     primitive: hash
     match: { import: crypto/sha3 }
 
-  # ---------- Any language: cipher-suite strings ----------
-  - id: generic-aes128-cbc
-    description: An AES-128-CBC cipher string; AES-128 is weakened by Grover's algorithm.
+  # =====================================================================
+  # Regex rules. Patterns are RE2, matched line by line, comments included.
+  # A pattern runs only on files containing one of its keywords
+  # (case-insensitive), and every example must match at load time.
+  # Rules without `languages` run on every text file, Go included.
+  # =====================================================================
+
+  # ---------- Any language: algorithm and cipher-suite names ----------
+  - id: generic-aes-cipher-string
+    description: An AES cipher name with key size and mode, such as aes-256-cbc (OpenSSL, Node, PHP, Ruby, configs).
     detector: regex
     algorithm: AES
     primitive: block-cipher
-    key_size: 128
-    mode: CBC
-    match: { pattern: '(?i)\baes[-_]?128[-_]?cbc\b' }
+    match:
+      keywords: [aes]
+      pattern: '(?i)\baes[-_]?(?P<bits>128|192|256)[-_]?(?P<mode>ecb|cbc|ctr|gcm|cfb|ofb|ccm|xts|ocb)\b'
+      examples: ['openssl enc -aes-256-cbc -in secret.txt', 'crypto.createCipheriv(''aes-128-ecb'', key, null)', 'CIPHER = "AES_128_GCM"']
 
   - id: generic-rsa-bits
-    description: An RSA key-size string such as RSA-2048.
+    description: An RSA key-size string such as RSA-2048 or rsa:4096.
     detector: regex
     algorithm: RSA
-    match: { pattern: '(?i)\brsa[-_:]?(?P<bits>1024|2048|3072|4096)\b' }
+    match:
+      keywords: [rsa]
+      pattern: '(?i)\brsa[-_:]?(?P<bits>1024|2048|3072|4096|8192)\b'
+      examples: ['openssl req -newkey rsa:2048 -nodes', 'KEY_TYPE=RSA-4096']
 
   - id: generic-3des
-    description: A 3DES cipher string; 3DES is broken today.
+    description: A 3DES cipher name; 3DES is broken today (64-bit block, Sweet32).
     detector: regex
     algorithm: 3DES
     primitive: block-cipher
     key_size: 168
-    match: { pattern: '(?i)\b(des-ede3|3des|triple-?des)\b' }
+    match:
+      keywords: [des-ede3, des-cbc3, 3des, tripledes, triple-des, desede]
+      pattern: '(?i)\b(?:des-ede3(?:-cbc)?|des-cbc3|3des|triple-?des|desede)\b'
+      examples: ['openssl enc -des-ede3-cbc', 'algorithm: TripleDES', 'ssh -c 3des-cbc host', 'ssl_ciphers DES-CBC3-SHA;']
+
+  - id: generic-rc4
+    description: An RC4 cipher name in quotes; RC4 is broken today.
+    detector: regex
+    algorithm: RC4
+    primitive: stream-cipher
+    match:
+      keywords: [rc4, arcfour]
+      pattern: '(?i)[''"](?:rc4|arcfour)(?:-(?:40|56|64|128|hmac-md5))?[''"]'
+      examples: ['crypto.createCipheriv(''rc4'', key, '''')', 'OpenSSL::Cipher.new("RC4-40")']
+
+  - id: generic-mlkem-name
+    description: An ML-KEM parameter-set name, such as ML-KEM-768 (NIST FIPS 203, quantum-safe).
+    detector: regex
+    algorithm: ML-KEM
+    primitive: kem
+    match:
+      keywords: [mlkem, ml-kem]
+      pattern: '(?i)\bML-?KEM-?(?:512|768|1024)\b'
+      examples: ['EVP_PKEY_CTX_new_from_name(NULL, "ML-KEM-768", NULL)', 'kem = "mlkem1024"']
+
+  - id: generic-mldsa-name
+    description: An ML-DSA parameter-set name, such as ML-DSA-65 (NIST FIPS 204, quantum-safe).
+    detector: regex
+    algorithm: ML-DSA
+    primitive: signature
+    match:
+      keywords: [mldsa, ml-dsa]
+      pattern: '(?i)\bML-?DSA-?(?:44|65|87)\b'
+      examples: ['openssl genpkey -algorithm ML-DSA-65', 'sig_alg: mldsa87']
+
+  - id: generic-x25519mlkem768
+    description: The hybrid X25519MLKEM768 TLS key-exchange group (quantum-safe).
+    detector: regex
+    algorithm: ML-KEM
+    primitive: kem
+    match:
+      keywords: [x25519mlkem768]
+      pattern: '(?i)\bX25519MLKEM768\b'
+      examples: ['ssl_ecdh_curve X25519MLKEM768:X25519;']
+
+  - id: generic-ssh-mlkem-kex
+    description: The hybrid mlkem768x25519-sha256 SSH key exchange (quantum-safe).
+    detector: regex
+    algorithm: ML-KEM
+    primitive: kem
+    match:
+      keywords: [mlkem768x25519]
+      pattern: '(?i)\bmlkem768x25519-sha256\b'
+      examples: ['KexAlgorithms mlkem768x25519-sha256,curve25519-sha256']
+
+  # ---------- Python ----------
+  - id: py-pycryptodome-rsa
+    description: Imports RSA from PyCryptodome; RSA is broken by Shor's algorithm.
+    detector: regex
+    languages: [python]
+    algorithm: RSA
+    match:
+      keywords: [publickey]
+      pattern: '\bCrypto(?:dome)?\.PublicKey(?:\.RSA\b|\s+import\s+(?:.*[\s,(])?RSA\b)'
+      examples: ['from Crypto.PublicKey import RSA', 'from Cryptodome.PublicKey import DSA, RSA', 'import Crypto.PublicKey.RSA']
+
+  - id: py-pycryptodome-dsa
+    description: Imports DSA from PyCryptodome; DSA is broken by Shor's algorithm.
+    detector: regex
+    languages: [python]
+    algorithm: DSA
+    primitive: signature
+    match:
+      keywords: [publickey]
+      pattern: '\bCrypto(?:dome)?\.PublicKey(?:\.DSA\b|\s+import\s+(?:.*[\s,(])?DSA\b)'
+      examples: ['from Crypto.PublicKey import DSA']
+
+  - id: py-pycryptodome-ecc
+    description: Imports ECC from PyCryptodome; elliptic curves are broken by Shor's algorithm.
+    detector: regex
+    languages: [python]
+    algorithm: ECC
+    match:
+      keywords: [publickey]
+      pattern: '\bCrypto(?:dome)?\.PublicKey(?:\.ECC\b|\s+import\s+(?:.*[\s,(])?ECC\b)'
+      examples: ['from Crypto.PublicKey import ECC']
+
+  - id: py-pycryptodome-rsa-generate
+    description: Generates an RSA key with PyCryptodome; the key size is read from the call.
+    detector: regex
+    languages: [python]
+    algorithm: RSA
+    match:
+      keywords: [rsa.generate]
+      pattern: '\bRSA\.generate\(\s*(?P<bits>\d+)'
+      examples: ['key = RSA.generate(2048)']
+
+  - id: py-pycryptodome-des
+    description: Imports DES from PyCryptodome; DES is broken today.
+    detector: regex
+    languages: [python]
+    algorithm: DES
+    primitive: block-cipher
+    key_size: 56
+    match:
+      keywords: [cipher]
+      pattern: '\bCrypto(?:dome)?\.Cipher(?:\.DES\b|\s+import\s+(?:.*[\s,(])?DES\b)'
+      examples: ['from Crypto.Cipher import DES']
+
+  - id: py-pycryptodome-3des
+    description: Imports DES3 from PyCryptodome; 3DES is broken today.
+    detector: regex
+    languages: [python]
+    algorithm: 3DES
+    primitive: block-cipher
+    key_size: 168
+    match:
+      keywords: [cipher]
+      pattern: '\bCrypto(?:dome)?\.Cipher(?:\.DES3\b|\s+import\s+(?:.*[\s,(])?DES3\b)'
+      examples: ['from Crypto.Cipher import AES, DES3']
+
+  - id: py-pycryptodome-arc4
+    description: Imports ARC4 from PyCryptodome; RC4 is broken today.
+    detector: regex
+    languages: [python]
+    algorithm: RC4
+    primitive: stream-cipher
+    match:
+      keywords: [cipher]
+      pattern: '\bCrypto(?:dome)?\.Cipher(?:\.ARC4\b|\s+import\s+(?:.*[\s,(])?ARC4\b)'
+      examples: ['from Crypto.Cipher import ARC4']
+
+  - id: py-pycryptodome-aes-mode
+    description: Creates a PyCryptodome AES cipher; the mode is read from the call.
+    detector: regex
+    languages: [python]
+    algorithm: AES
+    primitive: block-cipher
+    match:
+      keywords: [aes.mode_]
+      pattern: '\bAES\.MODE_(?P<mode>[A-Z]+)\b'
+      examples: ['cipher = AES.new(key, AES.MODE_ECB)', 'AES.new(key, AES.MODE_GCM, nonce=n)']
+
+  - id: py-hashlib-md5
+    description: Hashes with MD5 through hashlib; MD5 is broken today.
+    detector: regex
+    languages: [python]
+    algorithm: MD5
+    primitive: hash
+    match:
+      keywords: [hashlib]
+      pattern: '\bhashlib\.(?:md5\b|new\(\s*[''"]md5[''"])'
+      examples: ['digest = hashlib.md5(data).hexdigest()', 'h = hashlib.new(''md5'')']
+
+  - id: py-hashlib-sha1
+    description: Hashes with SHA-1 through hashlib; SHA-1 is broken today.
+    detector: regex
+    languages: [python]
+    algorithm: SHA-1
+    primitive: hash
+    match:
+      keywords: [hashlib]
+      pattern: '\bhashlib\.(?:sha1\b|new\(\s*[''"]sha1[''"])'
+      examples: ['hashlib.sha1(b"x")', 'hashlib.new("sha1")']
+
+  - id: py-cryptography-rsa-generate
+    description: Generates an RSA key with pyca/cryptography; the key size is read when it is on the same line.
+    detector: regex
+    languages: [python]
+    algorithm: RSA
+    match:
+      keywords: [generate_private_key]
+      pattern: '\brsa\.generate_private_key\((?:.*\bkey_size\s*=\s*(?P<bits>\d+))?'
+      examples: ['rsa.generate_private_key(public_exponent=65537, key_size=2048)', 'key = rsa.generate_private_key(']
+
+  - id: py-cryptography-ec-generate
+    description: Generates an elliptic-curve key with pyca/cryptography; broken by Shor's algorithm.
+    detector: regex
+    languages: [python]
+    algorithm: ECC
+    match:
+      keywords: [generate_private_key]
+      pattern: '\bec\.generate_private_key\('
+      examples: ['key = ec.generate_private_key(ec.SECP256R1())']
+
+  - id: py-cryptography-ed25519
+    description: Uses an Ed25519 private key from pyca/cryptography; EdDSA is broken by Shor's algorithm.
+    detector: regex
+    languages: [python]
+    algorithm: EdDSA
+    primitive: signature
+    key_size: 255
+    match:
+      keywords: [ed25519privatekey]
+      pattern: '\bEd25519PrivateKey\.(?:generate|from_private_bytes)\('
+      examples: ['key = Ed25519PrivateKey.generate()']
+
+  - id: py-cryptography-x25519
+    description: Uses an X25519 private key from pyca/cryptography; broken by Shor's algorithm.
+    detector: regex
+    languages: [python]
+    algorithm: X25519
+    primitive: key-agree
+    key_size: 255
+    match:
+      keywords: [x25519privatekey]
+      pattern: '\bX25519PrivateKey\.(?:generate|from_private_bytes)\('
+      examples: ['shared = X25519PrivateKey.generate()']
+
+  - id: py-cryptography-dh
+    description: Generates Diffie-Hellman parameters with pyca/cryptography; broken by Shor's algorithm.
+    detector: regex
+    languages: [python]
+    algorithm: DH
+    primitive: key-agree
+    match:
+      keywords: [generate_parameters]
+      pattern: '\bdh\.generate_parameters\('
+      examples: ['params = dh.generate_parameters(generator=2, key_size=2048)']
+
+  - id: py-cryptography-3des
+    description: Uses TripleDES from pyca/cryptography; 3DES is broken today.
+    detector: regex
+    languages: [python]
+    algorithm: 3DES
+    primitive: block-cipher
+    key_size: 168
+    match:
+      keywords: [tripledes]
+      pattern: '\balgorithms\.TripleDES\('
+      examples: ['Cipher(algorithms.TripleDES(key), modes.CBC(iv))']
+
+  - id: py-cryptography-arc4
+    description: Uses ARC4 from pyca/cryptography; RC4 is broken today.
+    detector: regex
+    languages: [python]
+    algorithm: RC4
+    primitive: stream-cipher
+    match:
+      keywords: [arc4]
+      pattern: '\balgorithms\.ARC4\('
+      examples: ['Cipher(algorithms.ARC4(key), mode=None)']
+
+  - id: py-cryptography-aes-ecb
+    description: Uses AES in ECB mode from pyca/cryptography; ECB leaks patterns. Only when both are on one line, so the cipher is known.
+    detector: regex
+    languages: [python]
+    algorithm: AES
+    primitive: block-cipher
+    mode: ECB
+    match:
+      keywords: [modes.ecb]
+      pattern: '\balgorithms\.AES(?:128|256)?\(.*\bmodes\.ECB\('
+      examples: ['Cipher(algorithms.AES(key), modes.ECB())']
+
+  - id: py-cryptography-md5
+    description: Hashes with MD5 through pyca/cryptography; MD5 is broken today.
+    detector: regex
+    languages: [python]
+    algorithm: MD5
+    primitive: hash
+    match:
+      keywords: [hashes.md5]
+      pattern: '\bhashes\.MD5\('
+      examples: ['hashes.Hash(hashes.MD5())']
+
+  - id: py-cryptography-sha1
+    description: Hashes with SHA-1 through pyca/cryptography; SHA-1 is broken today.
+    detector: regex
+    languages: [python]
+    algorithm: SHA-1
+    primitive: hash
+    match:
+      keywords: [hashes.sha1]
+      pattern: '\bhashes\.SHA1\('
+      examples: ['padding.PSS(mgf=padding.MGF1(hashes.SHA1()))']
+
+  - id: py-rsa-newkeys
+    description: Generates an RSA key with the python-rsa package; the key size is read from the call.
+    detector: regex
+    languages: [python]
+    algorithm: RSA
+    match:
+      keywords: [newkeys]
+      pattern: '\brsa\.newkeys\(\s*(?P<bits>\d+)'
+      examples: ['(pub, priv) = rsa.newkeys(1024)']
+
+  - id: py-oqs-mlkem
+    description: Uses ML-KEM through liboqs-python (NIST FIPS 203, quantum-safe).
+    detector: regex
+    languages: [python]
+    algorithm: ML-KEM
+    primitive: kem
+    match:
+      keywords: [keyencapsulation]
+      pattern: '\boqs\.KeyEncapsulation\(\s*[''"]ML-KEM'
+      examples: ['with oqs.KeyEncapsulation("ML-KEM-768") as kem:']
+
+  - id: py-oqs-mldsa
+    description: Uses ML-DSA through liboqs-python (NIST FIPS 204, quantum-safe).
+    detector: regex
+    languages: [python]
+    algorithm: ML-DSA
+    primitive: signature
+    match:
+      keywords: [oqs.signature]
+      pattern: '\boqs\.Signature\(\s*[''"]ML-DSA'
+      examples: ['signer = oqs.Signature(''ML-DSA-65'')']
+
+  # ---------- Java and Kotlin (JCA names) ----------
+  - id: java-keypairgen-rsa
+    description: Creates an RSA KeyPairGenerator; RSA is broken by Shor's algorithm.
+    detector: regex
+    languages: [java, kotlin]
+    algorithm: RSA
+    match:
+      keywords: [keypairgenerator]
+      pattern: '\bKeyPairGenerator\.getInstance\(\s*"RSA(?:SSA-PSS)?"'
+      examples: ['KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");']
+
+  - id: java-keypairgen-ec
+    description: Creates an EC KeyPairGenerator; elliptic curves are broken by Shor's algorithm.
+    detector: regex
+    languages: [java, kotlin]
+    algorithm: ECC
+    match:
+      keywords: [keypairgenerator]
+      pattern: '\bKeyPairGenerator\.getInstance\(\s*"EC"'
+      examples: ['val kpg = KeyPairGenerator.getInstance("EC")']
+
+  - id: java-keypairgen-dsa
+    description: Creates a DSA KeyPairGenerator; DSA is broken by Shor's algorithm.
+    detector: regex
+    languages: [java, kotlin]
+    algorithm: DSA
+    primitive: signature
+    match:
+      keywords: [keypairgenerator]
+      pattern: '\bKeyPairGenerator\.getInstance\(\s*"DSA"'
+      examples: ['KeyPairGenerator.getInstance("DSA")']
+
+  - id: java-keypairgen-dh
+    description: Creates a Diffie-Hellman KeyPairGenerator; broken by Shor's algorithm.
+    detector: regex
+    languages: [java, kotlin]
+    algorithm: DH
+    primitive: key-agree
+    match:
+      keywords: [keypairgenerator]
+      pattern: '\bKeyPairGenerator\.getInstance\(\s*"(?:DH|DiffieHellman)"'
+      examples: ['KeyPairGenerator.getInstance("DiffieHellman")']
+
+  - id: java-keypairgen-eddsa
+    description: Creates an EdDSA KeyPairGenerator; broken by Shor's algorithm.
+    detector: regex
+    languages: [java, kotlin]
+    algorithm: EdDSA
+    primitive: signature
+    match:
+      keywords: [keypairgenerator]
+      pattern: '\bKeyPairGenerator\.getInstance\(\s*"(?:Ed25519|Ed448|EdDSA)"'
+      examples: ['KeyPairGenerator.getInstance("Ed25519")']
+
+  - id: java-keypairgen-x25519
+    description: Creates an X25519 KeyPairGenerator; broken by Shor's algorithm.
+    detector: regex
+    languages: [java, kotlin]
+    algorithm: X25519
+    primitive: key-agree
+    key_size: 255
+    match:
+      keywords: [keypairgenerator]
+      pattern: '\bKeyPairGenerator\.getInstance\(\s*"(?:X25519|XDH)"'
+      examples: ['KeyPairGenerator.getInstance("X25519")']
+
+  - id: java-keypairgen-mlkem
+    description: Creates an ML-KEM KeyPairGenerator (NIST FIPS 203, quantum-safe). Named parameter sets are caught by generic-mlkem-name.
+    detector: regex
+    languages: [java, kotlin]
+    algorithm: ML-KEM
+    primitive: kem
+    match:
+      keywords: [keypairgenerator]
+      pattern: '\bKeyPairGenerator\.getInstance\(\s*"ML-KEM"'
+      examples: ['KeyPairGenerator.getInstance("ML-KEM")']
+
+  - id: java-keypairgen-mldsa
+    description: Creates an ML-DSA KeyPairGenerator (NIST FIPS 204, quantum-safe). Named parameter sets are caught by generic-mldsa-name.
+    detector: regex
+    languages: [java, kotlin]
+    algorithm: ML-DSA
+    primitive: signature
+    match:
+      keywords: [keypairgenerator]
+      pattern: '\bKeyPairGenerator\.getInstance\(\s*"ML-DSA"'
+      examples: ['KeyPairGenerator.getInstance("ML-DSA")']
+
+  - id: java-cipher-aes-mode
+    description: Creates an AES Cipher; the mode (and key size, if named) is read from the transformation.
+    detector: regex
+    languages: [java, kotlin]
+    algorithm: AES
+    primitive: block-cipher
+    match:
+      keywords: [cipher.getinstance]
+      pattern: '\bCipher\.getInstance\(\s*"AES(?:_(?P<bits>128|192|256))?/(?P<mode>[A-Za-z]+)/'
+      examples: ['Cipher.getInstance("AES/GCM/NoPadding")', 'Cipher.getInstance("AES_256/ECB/PKCS5Padding")']
+
+  - id: java-cipher-aes-default
+    description: Creates an AES Cipher without a mode, which Java treats as AES/ECB/PKCS5Padding; ECB leaks patterns.
+    detector: regex
+    languages: [java, kotlin]
+    algorithm: AES
+    primitive: block-cipher
+    mode: ECB
+    match:
+      keywords: [cipher.getinstance]
+      pattern: '\bCipher\.getInstance\(\s*"AES"'
+      examples: ['Cipher c = Cipher.getInstance("AES");']
+
+  - id: java-cipher-des
+    description: Creates a DES Cipher; DES is broken today.
+    detector: regex
+    languages: [java, kotlin]
+    algorithm: DES
+    primitive: block-cipher
+    key_size: 56
+    match:
+      keywords: [cipher.getinstance]
+      pattern: '\bCipher\.getInstance\(\s*"DES[/"]'
+      examples: ['Cipher.getInstance("DES/CBC/PKCS5Padding")']
+
+  - id: java-cipher-3des
+    description: Creates a 3DES (DESede) Cipher; 3DES is broken today.
+    detector: regex
+    languages: [java, kotlin]
+    algorithm: 3DES
+    primitive: block-cipher
+    key_size: 168
+    match:
+      keywords: [cipher.getinstance]
+      pattern: '\bCipher\.getInstance\(\s*"(?:DESede|TripleDES)[/"]'
+      examples: ['Cipher.getInstance("DESede/ECB/NoPadding")']
+
+  - id: java-cipher-rc4
+    description: Creates an RC4 (ARCFOUR) Cipher; RC4 is broken today.
+    detector: regex
+    languages: [java, kotlin]
+    algorithm: RC4
+    primitive: stream-cipher
+    match:
+      keywords: [cipher.getinstance]
+      pattern: '\bCipher\.getInstance\(\s*"(?:RC4|ARCFOUR)[/"]'
+      examples: ['Cipher.getInstance("ARCFOUR")']
+
+  - id: java-cipher-rsa
+    description: Creates an RSA Cipher for encryption; RSA is broken by Shor's algorithm.
+    detector: regex
+    languages: [java, kotlin]
+    algorithm: RSA
+    primitive: pke
+    match:
+      keywords: [cipher.getinstance]
+      pattern: '\bCipher\.getInstance\(\s*"RSA[/"]'
+      examples: ['Cipher.getInstance("RSA/ECB/OAEPWithSHA-256AndMGF1Padding")']
+
+  - id: java-digest-md5
+    description: Creates an MD5 MessageDigest; MD5 is broken today.
+    detector: regex
+    languages: [java, kotlin]
+    algorithm: MD5
+    primitive: hash
+    match:
+      keywords: [messagedigest]
+      pattern: '\bMessageDigest\.getInstance\(\s*"MD5"'
+      examples: ['MessageDigest md = MessageDigest.getInstance("MD5");']
+
+  - id: java-digest-sha1
+    description: Creates a SHA-1 MessageDigest; SHA-1 is broken today.
+    detector: regex
+    languages: [java, kotlin]
+    algorithm: SHA-1
+    primitive: hash
+    match:
+      keywords: [messagedigest]
+      pattern: '\bMessageDigest\.getInstance\(\s*"SHA-?1"'
+      examples: ['MessageDigest.getInstance("SHA-1")', 'MessageDigest.getInstance("SHA1")']
+
+  - id: java-signature-rsa
+    description: Creates an RSA Signature; RSA is broken by Shor's algorithm.
+    detector: regex
+    languages: [java, kotlin]
+    algorithm: RSA
+    primitive: signature
+    match:
+      keywords: [signature.getinstance]
+      pattern: '\bSignature\.getInstance\(\s*"(?:\w+with(?:RSA|RSA/PSS)|RSASSA-PSS)"'
+      examples: ['Signature.getInstance("SHA256withRSA")', 'Signature.getInstance("RSASSA-PSS")']
+
+  - id: java-signature-ecdsa
+    description: Creates an ECDSA Signature; ECDSA is broken by Shor's algorithm.
+    detector: regex
+    languages: [java, kotlin]
+    algorithm: ECDSA
+    primitive: signature
+    match:
+      keywords: [signature.getinstance]
+      pattern: '\bSignature\.getInstance\(\s*"\w+withECDSA"'
+      examples: ['Signature.getInstance("SHA384withECDSA")']
+
+  - id: java-signature-sha1
+    description: Creates a Signature that hashes with SHA-1; SHA-1 is broken today.
+    detector: regex
+    languages: [java, kotlin]
+    algorithm: SHA-1
+    primitive: hash
+    match:
+      keywords: [signature.getinstance]
+      pattern: '\bSignature\.getInstance\(\s*"SHA1with'
+      examples: ['Signature.getInstance("SHA1withRSA")']
+
+  - id: java-keyagreement-ecdh
+    description: Creates an ECDH KeyAgreement; broken by Shor's algorithm.
+    detector: regex
+    languages: [java, kotlin]
+    algorithm: ECDH
+    primitive: key-agree
+    match:
+      keywords: [keyagreement]
+      pattern: '\bKeyAgreement\.getInstance\(\s*"ECDH"'
+      examples: ['KeyAgreement ka = KeyAgreement.getInstance("ECDH");']
+
+  - id: java-keyagreement-dh
+    description: Creates a Diffie-Hellman KeyAgreement; broken by Shor's algorithm.
+    detector: regex
+    languages: [java, kotlin]
+    algorithm: DH
+    primitive: key-agree
+    match:
+      keywords: [keyagreement]
+      pattern: '\bKeyAgreement\.getInstance\(\s*"(?:DH|DiffieHellman)"'
+      examples: ['KeyAgreement.getInstance("DH")']
+
+  - id: java-bouncycastle-rsa
+    description: Creates a Bouncy Castle RSAKeyPairGenerator; RSA is broken by Shor's algorithm.
+    detector: regex
+    languages: [java, kotlin]
+    algorithm: RSA
+    match:
+      keywords: [rsakeypairgenerator]
+      pattern: '\bnew\s+RSAKeyPairGenerator\('
+      examples: ['RSAKeyPairGenerator gen = new RSAKeyPairGenerator();']
+
+  # ---------- JavaScript and TypeScript ----------
+  - id: js-node-keypair-rsa
+    description: Generates an RSA key pair with Node crypto; the key size is read when it is on the same line.
+    detector: regex
+    languages: [javascript, typescript]
+    algorithm: RSA
+    match:
+      keywords: [generatekeypair]
+      pattern: '\bgenerateKeyPair(?:Sync)?\(\s*[''"`]rsa(?:-pss)?[''"`](?:\s*,\s*\{[^}]*\bmodulusLength\s*:\s*(?P<bits>\d+))?'
+      examples: ['crypto.generateKeyPairSync(''rsa'', { modulusLength: 2048 })', 'generateKeyPair("rsa-pss", opts, cb)']
+
+  - id: js-node-keypair-ec
+    description: Generates an EC key pair with Node crypto; elliptic curves are broken by Shor's algorithm.
+    detector: regex
+    languages: [javascript, typescript]
+    algorithm: ECC
+    match:
+      keywords: [generatekeypair]
+      pattern: '\bgenerateKeyPair(?:Sync)?\(\s*[''"`]ec[''"`]'
+      examples: ['generateKeyPairSync(''ec'', { namedCurve: ''P-256'' })']
+
+  - id: js-node-keypair-dsa
+    description: Generates a DSA key pair with Node crypto; DSA is broken by Shor's algorithm.
+    detector: regex
+    languages: [javascript, typescript]
+    algorithm: DSA
+    primitive: signature
+    match:
+      keywords: [generatekeypair]
+      pattern: '\bgenerateKeyPair(?:Sync)?\(\s*[''"`]dsa[''"`]'
+      examples: ['generateKeyPairSync("dsa", { modulusLength: 2048 })']
+
+  - id: js-node-keypair-ed25519
+    description: Generates an Ed25519 key pair with Node crypto; EdDSA is broken by Shor's algorithm.
+    detector: regex
+    languages: [javascript, typescript]
+    algorithm: EdDSA
+    primitive: signature
+    key_size: 255
+    match:
+      keywords: [generatekeypair]
+      pattern: '\bgenerateKeyPair(?:Sync)?\(\s*[''"`]ed25519[''"`]'
+      examples: ['const { publicKey } = generateKeyPairSync(''ed25519'')']
+
+  - id: js-node-keypair-x25519
+    description: Generates an X25519 key pair with Node crypto; broken by Shor's algorithm.
+    detector: regex
+    languages: [javascript, typescript]
+    algorithm: X25519
+    primitive: key-agree
+    key_size: 255
+    match:
+      keywords: [generatekeypair]
+      pattern: '\bgenerateKeyPair(?:Sync)?\(\s*[''"`]x25519[''"`]'
+      examples: ['generateKeyPairSync("x25519")']
+
+  - id: js-node-keypair-dh
+    description: Generates a Diffie-Hellman key pair with Node crypto; broken by Shor's algorithm.
+    detector: regex
+    languages: [javascript, typescript]
+    algorithm: DH
+    primitive: key-agree
+    match:
+      keywords: [generatekeypair]
+      pattern: '\bgenerateKeyPair(?:Sync)?\(\s*[''"`]dh[''"`]'
+      examples: ['generateKeyPairSync(''dh'', { group: ''modp14'' })']
+
+  - id: js-node-hash-md5
+    description: Hashes with MD5 through Node crypto; MD5 is broken today.
+    detector: regex
+    languages: [javascript, typescript]
+    algorithm: MD5
+    primitive: hash
+    match:
+      keywords: [createhash]
+      pattern: '\bcreateHash\(\s*[''"`]md5[''"`]'
+      examples: ['crypto.createHash(''md5'').update(s).digest(''hex'')']
+
+  - id: js-node-hash-sha1
+    description: Hashes with SHA-1 through Node crypto; SHA-1 is broken today.
+    detector: regex
+    languages: [javascript, typescript]
+    algorithm: SHA-1
+    primitive: hash
+    match:
+      keywords: [createhash]
+      pattern: '\bcreateHash\(\s*[''"`]sha1[''"`]'
+      examples: ['createHash("sha1")']
+
+  - id: js-node-cipher-des
+    description: Creates a single-DES cipher with Node crypto; DES is broken today. (3DES, RC4 and AES names are caught by the generic rules.)
+    detector: regex
+    languages: [javascript, typescript]
+    algorithm: DES
+    primitive: block-cipher
+    key_size: 56
+    match:
+      keywords: [createcipher, createdecipher]
+      pattern: '\bcreate(?:Cipher|Decipher)(?:iv)?\(\s*[''"`]des(?:-(?:cbc|ecb|cfb|ofb))?[''"`]'
+      examples: ['crypto.createCipheriv(''des-cbc'', key, iv)']
+
+  - id: js-webcrypto-rsa
+    description: Uses an RSA algorithm through Web Crypto; RSA is broken by Shor's algorithm.
+    detector: regex
+    languages: [javascript, typescript]
+    algorithm: RSA
+    match:
+      keywords: [rsa-oaep, rsa-pss, rsassa-pkcs1]
+      pattern: '\bname\s*:\s*[''"`](?:RSA-OAEP|RSA-PSS|RSASSA-PKCS1-v1_5)[''"`]'
+      examples: ['subtle.generateKey({ name: "RSA-OAEP", modulusLength: 2048 }, true, ops)']
+
+  - id: js-webcrypto-ecdsa
+    description: Uses ECDSA through Web Crypto; ECDSA is broken by Shor's algorithm.
+    detector: regex
+    languages: [javascript, typescript]
+    algorithm: ECDSA
+    primitive: signature
+    match:
+      keywords: [ecdsa]
+      pattern: '\bname\s*:\s*[''"`]ECDSA[''"`]'
+      examples: ['{ name: ''ECDSA'', namedCurve: ''P-384'' }']
+
+  - id: js-webcrypto-ecdh
+    description: Uses ECDH through Web Crypto; broken by Shor's algorithm.
+    detector: regex
+    languages: [javascript, typescript]
+    algorithm: ECDH
+    primitive: key-agree
+    match:
+      keywords: [ecdh]
+      pattern: '\bname\s*:\s*[''"`]ECDH[''"`]'
+      examples: ['{ name: "ECDH", namedCurve: "P-256" }']
+
+  - id: js-webcrypto-ed25519
+    description: Uses Ed25519 through Web Crypto; EdDSA is broken by Shor's algorithm.
+    detector: regex
+    languages: [javascript, typescript]
+    algorithm: EdDSA
+    primitive: signature
+    key_size: 255
+    match:
+      keywords: [ed25519]
+      pattern: '\bname\s*:\s*[''"`]Ed25519[''"`]'
+      examples: ['subtle.generateKey({ name: "Ed25519" }, true, ["sign"])']
+
+  - id: js-webcrypto-x25519
+    description: Uses X25519 through Web Crypto; broken by Shor's algorithm.
+    detector: regex
+    languages: [javascript, typescript]
+    algorithm: X25519
+    primitive: key-agree
+    key_size: 255
+    match:
+      keywords: [x25519]
+      pattern: '\bname\s*:\s*[''"`]X25519[''"`]'
+      examples: ['{ name: ''X25519'' }']
+
+  - id: js-forge-rsa
+    description: Generates an RSA key with node-forge; the key size is read when given.
+    detector: regex
+    languages: [javascript, typescript]
+    algorithm: RSA
+    match:
+      keywords: [forge.pki.rsa]
+      pattern: '\bforge\.pki\.rsa\.generateKeyPair\(\s*(?:\{\s*bits\s*:\s*)?(?P<bits>\d+)?'
+      examples: ['forge.pki.rsa.generateKeyPair({ bits: 2048, e: 0x10001 })', 'forge.pki.rsa.generateKeyPair(1024)']
+
+  - id: js-forge-md5
+    description: Hashes with MD5 through node-forge; MD5 is broken today.
+    detector: regex
+    languages: [javascript, typescript]
+    algorithm: MD5
+    primitive: hash
+    match:
+      keywords: [forge.md.md5]
+      pattern: '\bforge\.md\.md5\.create\('
+      examples: ['const md = forge.md.md5.create();']
+
+  - id: js-forge-sha1
+    description: Hashes with SHA-1 through node-forge; SHA-1 is broken today.
+    detector: regex
+    languages: [javascript, typescript]
+    algorithm: SHA-1
+    primitive: hash
+    match:
+      keywords: [forge.md.sha1]
+      pattern: '\bforge\.md\.sha1\.create\('
+      examples: ['forge.md.sha1.create()']
+
+  - id: js-jsrsasign-rsa
+    description: Generates an RSA key with jsrsasign; the key size is read from the call.
+    detector: regex
+    languages: [javascript, typescript]
+    algorithm: RSA
+    match:
+      keywords: [keyutil]
+      pattern: '\bKEYUTIL\.generateKeypair\(\s*[''"]RSA[''"]\s*,\s*(?P<bits>\d+)'
+      examples: ['var kp = KEYUTIL.generateKeypair("RSA", 2048);']
+
+  # ---------- PHP ----------
+  - id: php-openssl-keytype-rsa
+    description: Uses OPENSSL_KEYTYPE_RSA; RSA is broken by Shor's algorithm.
+    detector: regex
+    languages: [php]
+    algorithm: RSA
+    match:
+      keywords: [openssl_keytype]
+      pattern: '\bOPENSSL_KEYTYPE_RSA\b'
+      examples: ['openssl_pkey_new([''private_key_type'' => OPENSSL_KEYTYPE_RSA]);']
+
+  - id: php-openssl-keytype-ec
+    description: Uses OPENSSL_KEYTYPE_EC; elliptic curves are broken by Shor's algorithm.
+    detector: regex
+    languages: [php]
+    algorithm: ECC
+    match:
+      keywords: [openssl_keytype]
+      pattern: '\bOPENSSL_KEYTYPE_EC\b'
+      examples: ['"private_key_type" => OPENSSL_KEYTYPE_EC,']
+
+  - id: php-openssl-keytype-dsa
+    description: Uses OPENSSL_KEYTYPE_DSA; DSA is broken by Shor's algorithm.
+    detector: regex
+    languages: [php]
+    algorithm: DSA
+    primitive: signature
+    match:
+      keywords: [openssl_keytype]
+      pattern: '\bOPENSSL_KEYTYPE_DSA\b'
+      examples: ['$type = OPENSSL_KEYTYPE_DSA;']
+
+  - id: php-openssl-keytype-dh
+    description: Uses OPENSSL_KEYTYPE_DH; Diffie-Hellman is broken by Shor's algorithm.
+    detector: regex
+    languages: [php]
+    algorithm: DH
+    primitive: key-agree
+    match:
+      keywords: [openssl_keytype]
+      pattern: '\bOPENSSL_KEYTYPE_DH\b'
+      examples: ['$type = OPENSSL_KEYTYPE_DH;']
+
+  - id: php-md5
+    description: Hashes with MD5 (md5(), md5_file() or hash('md5')); MD5 is broken today.
+    detector: regex
+    languages: [php]
+    algorithm: MD5
+    primitive: hash
+    match:
+      keywords: [md5]
+      pattern: '\b(?:md5(?:_file)?\(|hash(?:_file|_init|_hmac)?\(\s*[''"]md5[''"])'
+      examples: ['$h = md5($password);', 'hash(''md5'', $data)']
+
+  - id: php-sha1
+    description: Hashes with SHA-1 (sha1(), sha1_file() or hash('sha1')); SHA-1 is broken today.
+    detector: regex
+    languages: [php]
+    algorithm: SHA-1
+    primitive: hash
+    match:
+      keywords: [sha1]
+      pattern: '\b(?:sha1(?:_file)?\(|hash(?:_file|_init|_hmac)?\(\s*[''"]sha1[''"])'
+      examples: ['$h = sha1($s);', 'hash_init("sha1")']
+
+  - id: php-mcrypt-des
+    description: Uses mcrypt DES; DES is broken today (and mcrypt was removed in PHP 7.2).
+    detector: regex
+    languages: [php]
+    algorithm: DES
+    primitive: block-cipher
+    key_size: 56
+    match:
+      keywords: [mcrypt_des]
+      pattern: '\bMCRYPT_DES\b'
+      examples: ['mcrypt_encrypt(MCRYPT_DES, $key, $data, MCRYPT_MODE_ECB);']
+
+  - id: php-mcrypt-3des
+    description: Uses mcrypt 3DES; 3DES is broken today (and mcrypt was removed in PHP 7.2).
+    detector: regex
+    languages: [php]
+    algorithm: 3DES
+    primitive: block-cipher
+    key_size: 168
+    match:
+      keywords: [mcrypt_3des, mcrypt_tripledes]
+      pattern: '\bMCRYPT_(?:3DES|TRIPLEDES)\b'
+      examples: ['mcrypt_module_open(MCRYPT_TRIPLEDES, '''', ''ecb'', '''')']
+
+  - id: php-phpseclib-rsa
+    description: Uses phpseclib's RSA class; RSA is broken by Shor's algorithm.
+    detector: regex
+    languages: [php]
+    algorithm: RSA
+    match:
+      keywords: [phpseclib]
+      pattern: '\bphpseclib3?\\Crypt\\RSA\b'
+      examples: ['use phpseclib3\Crypt\RSA;']
+
+  # ---------- C# ----------
+  - id: cs-rsa
+    description: Creates an RSA instance in .NET; the key size is read when given.
+    detector: regex
+    languages: [csharp]
+    algorithm: RSA
+    match:
+      keywords: [rsacryptoserviceprovider, rsa.create]
+      pattern: '\b(?:new\s+RSACryptoServiceProvider|RSA\.Create)\(\s*(?P<bits>\d+)?'
+      examples: ['var rsa = new RSACryptoServiceProvider(2048);', 'using var rsa = RSA.Create();']
+
+  - id: cs-dsa
+    description: Creates a DSA instance in .NET; DSA is broken by Shor's algorithm.
+    detector: regex
+    languages: [csharp]
+    algorithm: DSA
+    primitive: signature
+    match:
+      keywords: [dsacryptoserviceprovider, dsa.create]
+      pattern: '\b(?:DSACryptoServiceProvider|DSA\.Create)\b'
+      examples: ['using var dsa = DSA.Create();']
+
+  - id: cs-ecdsa
+    description: Creates an ECDsa instance in .NET; ECDSA is broken by Shor's algorithm.
+    detector: regex
+    languages: [csharp]
+    algorithm: ECDSA
+    primitive: signature
+    match:
+      keywords: [ecdsa]
+      pattern: '\b(?:ECDsa\.Create|ECDsaCng|ECDsaOpenSsl)\b'
+      examples: ['using var ecdsa = ECDsa.Create(ECCurve.NamedCurves.nistP256);']
+
+  - id: cs-ecdh
+    description: Uses ECDiffieHellman in .NET; broken by Shor's algorithm.
+    detector: regex
+    languages: [csharp]
+    algorithm: ECDH
+    primitive: key-agree
+    match:
+      keywords: [ecdiffiehellman]
+      pattern: '\bECDiffieHellman(?:Cng|OpenSsl)?\b'
+      examples: ['using var ecdh = ECDiffieHellman.Create();']
+
+  - id: cs-md5
+    description: Hashes with MD5 in .NET; MD5 is broken today.
+    detector: regex
+    languages: [csharp]
+    algorithm: MD5
+    primitive: hash
+    match:
+      keywords: [md5]
+      pattern: '\b(?:MD5\.(?:Create|HashData)|MD5CryptoServiceProvider)\b'
+      examples: ['using var md5 = MD5.Create();', 'var h = MD5.HashData(bytes);']
+
+  - id: cs-sha1
+    description: Hashes with SHA-1 in .NET; SHA-1 is broken today.
+    detector: regex
+    languages: [csharp]
+    algorithm: SHA-1
+    primitive: hash
+    match:
+      keywords: [sha1]
+      pattern: '\b(?:SHA1\.(?:Create|HashData)|SHA1Managed|SHA1CryptoServiceProvider)\b'
+      examples: ['var sha = new SHA1Managed();', 'SHA1.HashData(data)']
+
+  - id: cs-des
+    description: Creates a DES instance in .NET; DES is broken today.
+    detector: regex
+    languages: [csharp]
+    algorithm: DES
+    primitive: block-cipher
+    key_size: 56
+    match:
+      keywords: [des]
+      pattern: '\b(?:DES\.Create|DESCryptoServiceProvider)\b'
+      examples: ['using var des = DES.Create();']
+
+  - id: cs-3des
+    description: Creates a TripleDES instance in .NET; 3DES is broken today.
+    detector: regex
+    languages: [csharp]
+    algorithm: 3DES
+    primitive: block-cipher
+    key_size: 168
+    match:
+      keywords: [tripledes]
+      pattern: '\b(?:TripleDES\.Create|TripleDESCryptoServiceProvider)\b'
+      examples: ['var tdes = new TripleDESCryptoServiceProvider();']
+
+  - id: cs-ecb
+    description: Sets CipherMode.ECB in .NET; ECB leaks patterns. The cipher is usually AES.
+    detector: regex
+    languages: [csharp]
+    algorithm: AES
+    primitive: block-cipher
+    mode: ECB
+    confidence: low
+    match:
+      keywords: [ciphermode.ecb]
+      pattern: '\bCipherMode\.ECB\b'
+      examples: ['aes.Mode = CipherMode.ECB;']
+
+  # ---------- Ruby ----------
+  - id: rb-openssl-rsa
+    description: Creates an RSA key with Ruby OpenSSL; the key size is read when given.
+    detector: regex
+    languages: [ruby]
+    algorithm: RSA
+    match:
+      keywords: [openssl::pkey::rsa]
+      pattern: '\bOpenSSL::PKey::RSA\.(?:new|generate)\(\s*(?P<bits>\d+)?'
+      examples: ['key = OpenSSL::PKey::RSA.new(2048)']
+
+  - id: rb-openssl-ec
+    description: Uses an EC key with Ruby OpenSSL; elliptic curves are broken by Shor's algorithm.
+    detector: regex
+    languages: [ruby]
+    algorithm: ECC
+    match:
+      keywords: [openssl::pkey::ec]
+      pattern: '\bOpenSSL::PKey::EC\b'
+      examples: ['key = OpenSSL::PKey::EC.generate("prime256v1")']
+
+  - id: rb-openssl-dsa
+    description: Uses a DSA key with Ruby OpenSSL; DSA is broken by Shor's algorithm.
+    detector: regex
+    languages: [ruby]
+    algorithm: DSA
+    primitive: signature
+    match:
+      keywords: [openssl::pkey::dsa]
+      pattern: '\bOpenSSL::PKey::DSA\b'
+      examples: ['OpenSSL::PKey::DSA.new(2048)']
+
+  - id: rb-digest-md5
+    description: Hashes with MD5 in Ruby; MD5 is broken today.
+    detector: regex
+    languages: [ruby]
+    algorithm: MD5
+    primitive: hash
+    match:
+      keywords: [digest::md5]
+      pattern: '\bDigest::MD5\b'
+      examples: ['Digest::MD5.hexdigest(s)', 'OpenSSL::Digest::MD5.new']
+
+  - id: rb-digest-sha1
+    description: Hashes with SHA-1 in Ruby; SHA-1 is broken today.
+    detector: regex
+    languages: [ruby]
+    algorithm: SHA-1
+    primitive: hash
+    match:
+      keywords: [digest::sha1]
+      pattern: '\bDigest::SHA1\b'
+      examples: ['Digest::SHA1.hexdigest(s)']
+
+  # ---------- C and C++ (OpenSSL) ----------
+  - id: c-openssl-rsa-generate-key
+    description: Generates an RSA key with the legacy OpenSSL API; the key size is read from the call.
+    detector: regex
+    languages: [c, cpp]
+    algorithm: RSA
+    match:
+      keywords: [rsa_generate_key]
+      pattern: '\bRSA_generate_key\((?:\s*(?P<bits>\d+))?'
+      examples: ['RSA *r = RSA_generate_key(1024, RSA_F4, NULL, NULL);']
+
+  - id: c-openssl-rsa-generate-key-ex
+    description: Generates an RSA key with OpenSSL RSA_generate_key_ex; the key size is read from the call.
+    detector: regex
+    languages: [c, cpp]
+    algorithm: RSA
+    match:
+      keywords: [rsa_generate_key_ex]
+      pattern: '\bRSA_generate_key_ex\((?:\s*[^,]+,\s*(?P<bits>\d+))?'
+      examples: ['RSA_generate_key_ex(rsa, 2048, e, NULL);']
+
+  - id: c-openssl-pkey-rsa
+    description: Uses an OpenSSL EVP_PKEY_RSA key; RSA is broken by Shor's algorithm.
+    detector: regex
+    languages: [c, cpp]
+    algorithm: RSA
+    match:
+      keywords: [evp_pkey_rsa]
+      pattern: '\bEVP_PKEY_RSA(?:_PSS)?\b'
+      examples: ['EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, NULL);']
+
+  - id: c-openssl-pkey-ec
+    description: Uses an OpenSSL EVP_PKEY_EC key; elliptic curves are broken by Shor's algorithm.
+    detector: regex
+    languages: [c, cpp]
+    algorithm: ECC
+    match:
+      keywords: [evp_pkey_ec]
+      pattern: '\bEVP_PKEY_EC\b'
+      examples: ['EVP_PKEY_CTX_new_id(EVP_PKEY_EC, NULL);']
+
+  - id: c-openssl-pkey-ed25519
+    description: Uses an OpenSSL Ed25519 key; EdDSA is broken by Shor's algorithm.
+    detector: regex
+    languages: [c, cpp]
+    algorithm: EdDSA
+    primitive: signature
+    key_size: 255
+    match:
+      keywords: [evp_pkey_ed25519]
+      pattern: '\bEVP_PKEY_ED25519\b'
+      examples: ['EVP_PKEY_CTX_new_id(EVP_PKEY_ED25519, NULL);']
+
+  - id: c-openssl-pkey-x25519
+    description: Uses an OpenSSL X25519 key; broken by Shor's algorithm.
+    detector: regex
+    languages: [c, cpp]
+    algorithm: X25519
+    primitive: key-agree
+    key_size: 255
+    match:
+      keywords: [evp_pkey_x25519]
+      pattern: '\bEVP_PKEY_X25519\b'
+      examples: ['EVP_PKEY_CTX_new_id(EVP_PKEY_X25519, NULL);']
+
+  - id: c-openssl-pkey-dh
+    description: Uses an OpenSSL Diffie-Hellman key; broken by Shor's algorithm.
+    detector: regex
+    languages: [c, cpp]
+    algorithm: DH
+    primitive: key-agree
+    match:
+      keywords: [evp_pkey_dh]
+      pattern: '\bEVP_PKEY_DH\b'
+      examples: ['EVP_PKEY_CTX_new_id(EVP_PKEY_DH, NULL);']
+
+  - id: c-openssl-pkey-dsa
+    description: Uses an OpenSSL DSA key; DSA is broken by Shor's algorithm.
+    detector: regex
+    languages: [c, cpp]
+    algorithm: DSA
+    primitive: signature
+    match:
+      keywords: [evp_pkey_dsa]
+      pattern: '\bEVP_PKEY_DSA\b'
+      examples: ['EVP_PKEY_CTX_new_id(EVP_PKEY_DSA, NULL);']
+
+  - id: c-openssl-evp-aes
+    description: Uses an OpenSSL AES cipher; key size and mode are read from the function name.
+    detector: regex
+    languages: [c, cpp]
+    algorithm: AES
+    primitive: block-cipher
+    match:
+      keywords: [evp_aes_]
+      pattern: '\bEVP_aes_(?P<bits>128|192|256)_(?P<mode>ecb|cbc|ctr|gcm|ofb|ccm|xts|ocb|cfb)'
+      examples: ['EVP_EncryptInit_ex(ctx, EVP_aes_128_ecb(), NULL, key, NULL);', 'EVP_aes_256_cfb128()']
+
+  - id: c-openssl-evp-des
+    description: Uses an OpenSSL single-DES cipher; DES is broken today.
+    detector: regex
+    languages: [c, cpp]
+    algorithm: DES
+    primitive: block-cipher
+    key_size: 56
+    match:
+      keywords: [evp_des_]
+      pattern: '\bEVP_des_(?:ecb|cbc|cfb|ofb)'
+      examples: ['EVP_des_cbc()']
+
+  - id: c-openssl-evp-3des
+    description: Uses an OpenSSL 3DES cipher; 3DES is broken today.
+    detector: regex
+    languages: [c, cpp]
+    algorithm: 3DES
+    primitive: block-cipher
+    key_size: 168
+    match:
+      keywords: [evp_des_ede3]
+      pattern: '\bEVP_des_ede3'
+      examples: ['EVP_des_ede3_cbc()']
+
+  - id: c-openssl-evp-rc4
+    description: Uses the OpenSSL RC4 cipher; RC4 is broken today.
+    detector: regex
+    languages: [c, cpp]
+    algorithm: RC4
+    primitive: stream-cipher
+    match:
+      keywords: [evp_rc4]
+      pattern: '\bEVP_rc4\b'
+      examples: ['EVP_EncryptInit_ex(ctx, EVP_rc4(), NULL, key, NULL);']
+
+  - id: c-openssl-md5
+    description: Hashes with MD5 through OpenSSL; MD5 is broken today.
+    detector: regex
+    languages: [c, cpp]
+    algorithm: MD5
+    primitive: hash
+    match:
+      keywords: [md5]
+      pattern: '\b(?:EVP_md5|MD5_Init|MD5)\('
+      examples: ['EVP_DigestInit_ex(ctx, EVP_md5(), NULL);', 'MD5(data, len, out);']
+
+  - id: c-openssl-sha1
+    description: Hashes with SHA-1 through OpenSSL; SHA-1 is broken today.
+    detector: regex
+    languages: [c, cpp]
+    algorithm: SHA-1
+    primitive: hash
+    match:
+      keywords: [sha1]
+      pattern: '\b(?:EVP_sha1|SHA1_Init|SHA1)\('
+      examples: ['EVP_DigestInit_ex(ctx, EVP_sha1(), NULL);']
+
+  # ---------- Rust ----------
+  - id: rs-rsa
+    description: Generates an RSA key with the rsa crate; the key size is read when on the same line.
+    detector: regex
+    languages: [rust]
+    algorithm: RSA
+    match:
+      keywords: [rsaprivatekey]
+      pattern: '\bRsaPrivateKey::new\((?:[^,]*,\s*(?P<bits>\d+))?'
+      examples: ['let key = RsaPrivateKey::new(&mut rng, 2048)?;']
+
+  - id: rs-ed25519-dalek
+    description: Uses the ed25519-dalek crate; EdDSA is broken by Shor's algorithm.
+    detector: regex
+    languages: [rust]
+    algorithm: EdDSA
+    primitive: signature
+    key_size: 255
+    match:
+      keywords: [ed25519_dalek]
+      pattern: '\bed25519_dalek\b'
+      examples: ['use ed25519_dalek::SigningKey;']
+
+  - id: rs-x25519-dalek
+    description: Uses the x25519-dalek crate; X25519 is broken by Shor's algorithm.
+    detector: regex
+    languages: [rust]
+    algorithm: X25519
+    primitive: key-agree
+    key_size: 255
+    match:
+      keywords: [x25519_dalek]
+      pattern: '\bx25519_dalek\b'
+      examples: ['use x25519_dalek::{EphemeralSecret, PublicKey};']
+
+  - id: rs-ecdsa
+    description: Uses ECDSA from the p256 or p384 crates; ECDSA is broken by Shor's algorithm.
+    detector: regex
+    languages: [rust]
+    algorithm: ECDSA
+    primitive: signature
+    match:
+      keywords: ['::ecdsa']
+      pattern: '\bp(?:256|384)::ecdsa\b'
+      examples: ['use p256::ecdsa::{SigningKey, Signature};']
+
+  - id: rs-md5
+    description: Hashes with MD5 in Rust; MD5 is broken today.
+    detector: regex
+    languages: [rust]
+    algorithm: MD5
+    primitive: hash
+    match:
+      keywords: [md5]
+      pattern: '\b(?:md5::(?:compute|Md5)\b|Md5::new\()'
+      examples: ['let digest = md5::compute(b"abc");', 'let mut h = Md5::new();']
+
+  - id: rs-sha1
+    description: Hashes with SHA-1 in Rust; SHA-1 is broken today.
+    detector: regex
+    languages: [rust]
+    algorithm: SHA-1
+    primitive: hash
+    match:
+      keywords: [sha1]
+      pattern: '\b(?:sha1::Sha1\b|Sha1::new\()'
+      examples: ['use sha1::Sha1;']
+
+  - id: rs-ml-kem
+    description: Uses the ml-kem crate (NIST FIPS 203, quantum-safe).
+    detector: regex
+    languages: [rust]
+    algorithm: ML-KEM
+    primitive: kem
+    match:
+      keywords: [ml_kem]
+      pattern: '\bml_kem::'
+      examples: ['use ml_kem::{MlKem768, KemCore};']
+
+  - id: rs-ml-dsa
+    description: Uses the ml-dsa crate (NIST FIPS 204, quantum-safe).
+    detector: regex
+    languages: [rust]
+    algorithm: ML-DSA
+    primitive: signature
+    match:
+      keywords: [ml_dsa]
+      pattern: '\bml_dsa::'
+      examples: ['use ml_dsa::{MlDsa65, KeyGen};']

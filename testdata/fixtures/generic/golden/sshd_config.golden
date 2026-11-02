@@ -1,0 +1,4 @@
+2	generic-ssh-mlkem-kex	ML-KEM	kem	0		medium	KexAlgorithms mlkem768x25519-sha256,curve25519-sha256
+3	generic-aes-cipher-string	AES	block-cipher	256	GCM	medium	Ciphers aes256-gcm@openssh.com,aes128-ctr,3des-cbc
+3	generic-aes-cipher-string	AES	block-cipher	128	CTR	medium	Ciphers aes256-gcm@openssh.com,aes128-ctr,3des-cbc
+3	generic-3des	3DES	block-cipher	168		medium	Ciphers aes256-gcm@openssh.com,aes128-ctr,3des-cbc

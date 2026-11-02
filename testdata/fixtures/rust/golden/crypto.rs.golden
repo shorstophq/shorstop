@@ -1,0 +1,5 @@
+2	rs-ed25519-dalek	EdDSA	signature	255		medium	use ed25519_dalek::SigningKey;
+3	rs-ecdsa	ECDSA	signature	0		medium	use p256::ecdsa::{Signature, SigningKey as EcKey};
+4	rs-ml-kem	ML-KEM	kem	0		medium	use ml_kem::{KemCore, MlKem768};
+8	rs-rsa	RSA		2048		medium	let key = RsaPrivateKey::new(&mut rng, 2048).unwrap();
+9	rs-md5	MD5	hash	0		medium	let digest = md5::compute(b"abc");

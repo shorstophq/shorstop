@@ -24,17 +24,22 @@ func Snippet(content []byte, n int) string {
 	if nl := bytes.IndexByte(content, '\n'); nl >= 0 {
 		content = content[:nl]
 	}
-	content = bytes.TrimSpace(content)
+	return SnippetOf(content)
+}
 
-	if utf8.RuneCount(content) <= MaxSnippet {
-		return string(bytes.ToValidUTF8(content, []byte("�")))
+// SnippetOf is Snippet for a line the caller already has: surrounding
+// whitespace removed, cut to MaxSnippet characters.
+func SnippetOf(line []byte) string {
+	line = bytes.TrimSpace(line)
+	if utf8.RuneCount(line) <= MaxSnippet {
+		return string(bytes.ToValidUTF8(line, []byte("�")))
 	}
 	// Cut on a rune boundary so a multi-byte character is never split.
 	cut, runes := 0, 0
-	for cut < len(content) && runes < MaxSnippet-1 {
-		_, size := utf8.DecodeRune(content[cut:])
+	for cut < len(line) && runes < MaxSnippet-1 {
+		_, size := utf8.DecodeRune(line[cut:])
 		cut += size
 		runes++
 	}
-	return string(bytes.ToValidUTF8(content[:cut], []byte("�"))) + "…"
+	return string(bytes.ToValidUTF8(line[:cut], []byte("�"))) + "…"
 }

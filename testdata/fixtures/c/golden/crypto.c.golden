@@ -1,0 +1,7 @@
+6	c-openssl-rsa-generate-key-ex	RSA		2048		medium	RSA_generate_key_ex(rsa, 2048, e, NULL);
+7	c-openssl-pkey-x25519	X25519	key-agree	255		medium	EVP_PKEY_CTX *ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_X25519, NULL);
+8	c-openssl-evp-aes	AES	block-cipher	128	ECB	medium	EVP_EncryptInit_ex(c, EVP_aes_128_ecb(), NULL, key, NULL);
+9	c-openssl-evp-aes	AES	block-cipher	256	GCM	medium	EVP_EncryptInit_ex(c, EVP_aes_256_gcm(), NULL, key, iv);
+10	c-openssl-evp-3des	3DES	block-cipher	168		medium	EVP_EncryptInit_ex(c, EVP_des_ede3_cbc(), NULL, key, iv);
+11	c-openssl-md5	MD5	hash	0		medium	EVP_DigestInit_ex(m, EVP_md5(), NULL);
+12	generic-mlkem-name	ML-KEM	kem	0		medium	EVP_PKEY_CTX *pq = EVP_PKEY_CTX_new_from_name(NULL, "ML-KEM-768", NULL);

@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -41,7 +42,12 @@ rules:
     detector: regex
     algorithm: RSA
     confidence: low
-    match: { pattern: 'rsa(?P<bits>\d+)' }
+    match: { keywords: [RSA], pattern: 'rsa(?P<bits>\d+)', examples: [rsa2048] }
+  - id: c
+    description: d
+    detector: regex
+    algorithm: AES
+    match: { keywords: [aes], pattern: '(?i)aes-(?P<mode>[a-z]+)', examples: [aes-gcm] }
 `), "t.yaml")
 	if err != nil {
 		t.Fatal(err)
@@ -52,8 +58,27 @@ rules:
 	if got := p.Rules[1].Confidence; got != ConfidenceLow {
 		t.Errorf("explicit confidence = %q, want low", got)
 	}
-	if m := p.Rules[1].Regexp().FindStringSubmatch("rsa2048"); m == nil || m[p.Rules[1].Regexp().SubexpIndex("bits")] != "2048" {
-		t.Errorf("bits group not captured: %v", m)
+	if got := p.Rules[1].Match.Keywords[0]; got != "rsa" {
+		t.Errorf("keyword = %q, want it lower-cased", got)
+	}
+
+	b, c := &p.Rules[1], &p.Rules[2]
+	tests := []struct {
+		r    *Rule
+		line string
+		want []LineMatch
+	}{
+		{b, "rsa2048", []LineMatch{{KeySize: 2048}}},
+		{b, "rsa99999999", []LineMatch{{}}}, // over maxKeyBits: not a key size
+		{b, "dsa2048", nil},
+		{b, "rsa2048 rsa4096 rsa2048", []LineMatch{{KeySize: 2048}, {KeySize: 4096}}}, // distinct, in order
+		{c, "AES-CBC", []LineMatch{{Mode: "CBC"}}},                                    // upper-cased
+		{c, "aes-foo", []LineMatch{{}}},                                               // not a known mode: dropped
+	}
+	for _, tt := range tests {
+		if got := tt.r.MatchAll([]byte(tt.line)); !slices.Equal(got, tt.want) {
+			t.Errorf("rule %s MatchAll(%q) = %+v, want %+v", tt.r.ID, tt.line, got, tt.want)
+		}
 	}
 }
 
@@ -88,13 +113,41 @@ func TestParseErrors(t *testing.T) {
 		},
 		{
 			"goast field rules",
-			"version: 1\nrules:\n  - id: a\n" + ok + "    detector: goast\n    key_size: 2048\n    match: { key_size_arg: -1, pattern: x }\n",
-			[]string{"need match.import", "key_size_arg needs match.call", "must not be negative", "not both", "match.pattern is for regex"},
+			"version: 1\nrules:\n  - id: a\n" + ok + "    detector: goast\n    key_size: 2048\n    languages: [go]\n    match: { key_size_arg: -1, pattern: x, keywords: [x] }\n",
+			[]string{"need match.import", "key_size_arg needs match.call", "must not be negative", "not both", "are for regex rules, not goast", "goast rules are Go-only"},
 		},
 		{
 			"regex field rules",
-			"version: 1\nrules:\n  - id: a\n" + ok + "    detector: regex\n    match: { import: crypto/rsa }\n",
-			[]string{"need match.pattern", "for goast rules, not regex"},
+			"version: 1\nrules:\n  - id: a\n" + ok + "    detector: regex\n    languages: [cobol]\n    mode: XYZ\n    match: { import: crypto/rsa, keywords: ['' ] }\n",
+			[]string{"need match.pattern", "for goast rules, not regex", `unknown language "cobol"`, `unknown mode "XYZ"`, `match.keywords[0] "" must be at least 3`},
+		},
+		{
+			"bad keywords",
+			"version: 1\nrules:\n  - id: a\n" + ok + "    detector: regex\n    match: { keywords: [ab, 'ключ'], pattern: x, examples: [x] }\n",
+			[]string{`keywords[0] "ab"`, `keywords[1] "ключ"`},
+		},
+		{
+			"regex needs keywords and examples",
+			"version: 1\nrules:\n  - id: a\n" + ok + "    detector: regex\n    match: { pattern: rsa }\n",
+			[]string{"need match.keywords", "need match.examples"},
+		},
+		{
+			"examples are checked",
+			"version: 1\nrules:\n  - id: a\n" + ok + "    detector: regex\n    match:\n      keywords: [rsa]\n      pattern: '(?i)rsa-(?P<bits>\\d+)-(?P<mode>\\w+)'\n      examples: [dsa, 'RSA-0-ecb', 'x', 'rsa-2048-foo']\n",
+			[]string{
+				"examples[0] does not match", "examples[2] contains none of the keywords",
+				`examples[1]: bits group captured "0"`, `examples[3]: mode group captured "foo"`,
+			},
+		},
+		{
+			"pattern matching everything",
+			"version: 1\nrules:\n  - id: a\n" + ok + "    detector: regex\n    match: { keywords: [a], pattern: 'a*', examples: [a] }\n",
+			[]string{"matches the empty string"},
+		},
+		{
+			"mode and mode group",
+			"version: 1\nrules:\n  - id: a\n" + ok + "    detector: regex\n    mode: ECB\n    match: { keywords: [a], pattern: 'a(?P<mode>x)', examples: [ax] }\n",
+			[]string{"set mode or a (?P<mode>...) group"},
 		},
 		{
 			"bad regex",

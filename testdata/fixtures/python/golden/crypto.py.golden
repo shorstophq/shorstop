@@ -1,0 +1,19 @@
+3	py-pycryptodome-rsa	RSA		0		medium	from Crypto.PublicKey import RSA
+4	py-pycryptodome-dsa	DSA	signature	0		medium	from Cryptodome.PublicKey import DSA, ECC
+4	py-pycryptodome-ecc	ECC		0		medium	from Cryptodome.PublicKey import DSA, ECC
+5	py-pycryptodome-3des	3DES	block-cipher	168		medium	from Crypto.Cipher import AES, DES3, ARC4
+5	py-pycryptodome-arc4	RC4	stream-cipher	0		medium	from Crypto.Cipher import AES, DES3, ARC4
+10	py-pycryptodome-rsa-generate	RSA		2048		medium	key = RSA.generate(2048)
+11	py-pycryptodome-aes-mode	AES	block-cipher	0	ECB	medium	cipher = AES.new(key, AES.MODE_ECB)
+12	py-pycryptodome-aes-mode	AES	block-cipher	0	GCM	medium	gcm = AES.new(key, AES.MODE_GCM, nonce=n)
+13	py-pycryptodome-aes-mode	AES	block-cipher	0		medium	legacy = AES.new(key, AES.MODE_OPENPGP)  # mode not in the closed set: Mode stays empty
+14	py-hashlib-md5	MD5	hash	0		medium	digest = hashlib.md5(data).hexdigest()
+15	py-hashlib-sha1	SHA-1	hash	0		medium	h = hashlib.new("sha1")
+16	py-cryptography-rsa-generate	RSA		3072		medium	priv = rsa.generate_private_key(public_exponent=65537, key_size=3072)
+17	py-cryptography-rsa-generate	RSA		0		medium	priv2 = rsa.generate_private_key(  # key size on the next line: unknown
+19	py-cryptography-ec-generate	ECC		0		medium	eck = ec.generate_private_key(ec.SECP256R1())
+20	py-cryptography-dh	DH	key-agree	0		medium	params = dh.generate_parameters(generator=2, key_size=2048)
+21	py-cryptography-3des	3DES	block-cipher	168		medium	c = Cipher(algorithms.TripleDES(k), modes.ECB())  # 3DES, so not the AES-ECB rule
+22	py-cryptography-aes-ecb	AES	block-cipher	0	ECB	medium	c2 = Cipher(algorithms.AES(k), modes.ECB())
+23	py-oqs-mlkem	ML-KEM	kem	0		medium	with oqs.KeyEncapsulation("ML-KEM-768") as kem:  # also generic-mlkem-name
+25	py-pycryptodome-aes-mode	AES	block-cipher	0	CBC	medium	# cipher = AES.new(key, AES.MODE_CBC)  -- comments are matched too

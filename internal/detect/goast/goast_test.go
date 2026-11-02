@@ -101,7 +101,7 @@ func TestOnlyGoastRules(t *testing.T) {
 version: 1
 rules:
   - { id: g, description: d, detector: goast, algorithm: MD5, match: { import: crypto/md5 } }
-  - { id: r, description: d, detector: regex, algorithm: MD5, match: { pattern: md5 } }
+  - { id: r, description: d, detector: regex, algorithm: MD5, match: { keywords: [md5], pattern: md5, examples: [md5] } }
 `), "t.yaml")
 	if err != nil {
 		t.Fatal(err)

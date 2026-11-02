@@ -1,0 +1,8 @@
+3	php-phpseclib-rsa	RSA		0		medium	use phpseclib3\Crypt\RSA;
+5	php-openssl-keytype-rsa	RSA		0		medium	$res = openssl_pkey_new(['private_key_type' => OPENSSL_KEYTYPE_RSA, 'private_key_bits' => 2048]);
+6	php-openssl-keytype-ec	ECC		0		medium	$ec = openssl_pkey_new(["private_key_type" => OPENSSL_KEYTYPE_EC]);
+7	php-md5	MD5	hash	0		medium	$h = md5($password);
+8	php-sha1	SHA-1	hash	0		medium	$s = sha1_file($path);
+9	php-sha1	SHA-1	hash	0		medium	$x = hash('sha1', $data);
+10	generic-aes-cipher-string	AES	block-cipher	256	CBC	medium	$enc = openssl_encrypt($data, 'aes-256-cbc', $key, 0, $iv); // generic AES rule
+11	php-mcrypt-des	DES	block-cipher	56		medium	mcrypt_encrypt(MCRYPT_DES, $key, $data, MCRYPT_MODE_ECB);
