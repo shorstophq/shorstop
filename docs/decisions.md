@@ -42,6 +42,76 @@ Each piece of state has exactly one owning goroutine, so the crawler uses **no m
 
 ---
 
+## `internal/rules/rules.go` + `rules.yaml`
+
+The rule pack: data that tells rule-driven detectors (`goast`, `regex`) what to look for. The schema was pulled forward from Phase 3 so detectors are built against it from the start rather than refactored later.
+
+### YAML library: `go.yaml.in/yaml/v3` (project-owner decision, 2026-11-02)
+- *Options:* `go.yaml.in/yaml/v3`, `goccy/go-yaml`, JSON with the stdlib only.
+- **Chose `go.yaml.in/yaml/v3`:** it's the maintained continuation of `gopkg.in/yaml.v3`, the most widely used Go YAML library, and it supports strict decoding (`KnownFields`). It's the project's first non-test dependency.
+- *Tradeoff:* the parser runs on user-supplied `--rules` files later, so it is attack surface. The files are small and local, and the risk is accepted. JSON would avoid the dependency, but rule authors could no longer write comments.
+
+### File shape: `version: 1` + `rules: [...]`
+- The plan's example was a bare list. **Wrapping it adds a format version**, so a future build can reject or migrate old files instead of misreading them. That's what the plan's "keep the format stable and versioned" asks for.
+- Only `FormatVersion = 1` is accepted. v1 isn't frozen until the first release: the `config` and `deps` detectors will add `match` fields.
+
+### Constants `DetectorGoAST`, `DetectorRegex` and `var defaultConfidence`
+- Detector names live **in `rules`, not in each detector package**. Detectors import `rules`, never the other way round, so there's no import cycle, and validation can list the valid names.
+- Only detectors that actually consume rules are listed. `cert` parses X.509 itself and needs no rules; `config` and `deps` get added together with their `match` fields. A name with no `match` schema would be a rule that can never do anything.
+- Default confidence comes from the detector (`goast` → high, `regex` → medium), so most rules don't need to say it; a rule can override it.
+
+### `var Algorithms` / `var Primitives` (closed sets)
+- *Options:* free-form strings, or a closed list. **Chose the closed list:** the Phase 3 classifier must map every algorithm to a status, and a closed set means a test can check that it covers every name. A typo like `SHA1` instead of `SHA-1` fails at load time; otherwise it would quietly produce an unclassified finding.
+- *Tradeoff:* adding an algorithm means a code change. Custom-rule authors can't invent new ones. That's intended: the classifier couldn't rate an algorithm it doesn't know anyway.
+- **Primitive names are CycloneDX 1.6's** (`block-cipher`, `key-agree`, `kem`, …), so the CBOM reporter can copy them through without a mapping table. "Unknown" is an empty string rather than the literal `unknown`, because a rule like `go-rsa-import` really doesn't know whether RSA is used for encryption or signatures.
+- Slices rather than maps: they keep a stable order for error messages ("known: …"), and with ~25 entries a linear `slices.Contains` costs nothing at load time.
+- `ECC` was added for `crypto/elliptic`, which is curve math under both ECDSA and ECDH, so neither name would be accurate.
+
+### `var idPattern` (`^[a-z0-9]+(-[a-z0-9]+)*$`)
+IDs appear in `// shorstop:ignore <rule-id>`, SARIF rule IDs and baselines, so they're restricted to characters that need no quoting anywhere. The header of `rules.yaml` says IDs are never renamed or reused, because that would silently break users' suppressions.
+
+### `type Pack` / `type Rule` / `type Match`
+- **`Match` is one struct holding every detector's fields**, not a per-detector type or an interface. A tagged union in YAML would need a custom `UnmarshalYAML`, and that loses strict decoding (see `Parse`). Instead, `validate` rejects fields that don't belong to the rule's detector, which gives the same safety with plain struct decoding.
+- `KeySizeArg` is `*int` because argument 0 is a valid index. A pointer tells "unset" apart from "0".
+- `Rule.re` is unexported and filled by `validate`, so **each regex compiles once at load**, as the plan requires. Detectors read it through `Regexp()` and can't replace it.
+- `Rule.Confidence` is filled with the detector default during validation, so consumers never handle the empty case.
+
+### `func (p *Pack) ForDetector(name) []*Rule`
+Returns pointers into `p.Rules`, not copies: `Rule` is about 150 bytes and every worker shares one pack. File order is kept so results are deterministic. It's a linear scan, but each detector calls it once at construction, not once per file.
+
+### `var Builtin = sync.OnceValues(...)`
+- The embedded file is parsed **once per process**, and the error is cached with the result. Every caller gets the same `*Pack`, and none of them needs to know when it was loaded.
+- *Options:* `init()` parsing (a panic at import time would be untestable and would also hit `--version`); a package-level `MustLoad` (same problem); or `OnceValues`. **Chose `OnceValues`:** it's lazy, safe for concurrent use, and returns an error instead of panicking.
+- `TestBuiltinLoads` guarantees the shipped file is valid, so at run time the error path only matters for future `--rules` files.
+
+### `type file`
+Mirrors the top level of the YAML only. Kept separate from `Pack` so the on-disk shape can change between format versions without changing the API detectors use.
+
+### `func Parse(data, source) (*Pack, error)`
+- **Pass 1, strict decode:** `KnownFields(true)` makes an unknown key an error. Without it, `key_sise: 2048` would load fine and quietly do nothing, the worst failure for a security scanner. A second `Decode` must return `io.EOF`, so a stray `---` can't hide a second document that never gets read.
+- **Pass 2, node tree, only for line numbers** (`ruleLines`). yaml.v3's `Node.Decode` doesn't carry `KnownFields`, so we can't decode per rule from nodes and stay strict. Parsing twice was the simplest way to get both strict decoding and line numbers, and rule files are a few KB.
+- **Collects all errors** (`errors.Join`) instead of stopping at the first, so a custom-rule author fixes everything in one go. Each message starts with `file:line: rule "id":` so editors can jump to the line.
+- Duplicate-ID detection uses `map[string]int` (id → first line), so the message points at both places. Empty IDs are skipped there because "missing id" already reports them.
+- Rejects version ≠ 1 and empty rule lists before validating rules: with no rules, a scan would report "no findings", which is a false all-clear.
+
+### `func ruleLines(data) []int`
+Walks the document's top mapping to the `rules` key, then reads `Line` from each sequence element. It returns nil on any surprise, and `Parse` then reports line 0 rather than failing: line numbers are a convenience, and pass 1 already decided validity.
+
+### `func (r *Rule) validate() []error`
+- Checks the shared fields, then the detector-specific `match` fields: goast needs `import`, and `key_size_arg` needs `call`; regex needs `pattern`, which must compile as RE2. Fields belonging to the other detector are rejected, so a rule can't look like it does something it doesn't.
+- `key_size` together with `key_size_arg` or a `(?P<bits>)` group is rejected: two sources for one value would be ambiguous.
+- **Mutates the rule** (default confidence, compiled regex). It's called once, on a value `Parse` owns, before the pack is returned, so nothing else can see a half-filled rule.
+- **Regex engine is Go's RE2**: linear time, so a user-supplied pattern can't cause catastrophic backtracking during a scan. The cost is no lookarounds or backreferences in rule patterns.
+
+### `rules.yaml` content (initial)
+- 22 `goast` rules: every crypto import the plan lists, plus calls where the call adds information. `rsa.GenerateKey` takes its key size from argument 1. `des.NewTripleDESCipher` means 3DES, not DES. `ecdh.X25519` names the curve.
+- `crypto/mlkem` and `crypto/mldsa` (both in Go 1.27's standard library; checked with `go list std`) are included so reports show quantum-safe progress.
+- SHA-256/512/SHA-3 are included even though they're acceptable: a CBOM is an inventory, not just a list of problems.
+- 3 `regex` rules show the pattern schema (`generic-aes128-cbc`, `generic-rsa-bits` with a `bits` group, `generic-3des`). The full regex set comes with the regex detector.
+- Flow mappings (`match: { import: crypto/rsa }`) keep each rule compact. Patterns are single-quoted, so `\b` reaches RE2 unescaped.
+
+---
+
 ## `internal/crawler/scan.go`
 
 ### Constants `jobBuffer = 256`, `resultBuffer = 256`
@@ -331,7 +401,7 @@ Each piece of state has exactly one owning goroutine, so the crawler uses **no m
 - **Minimum is 1.27, the latest release**, by project-owner decision (2026-10-24). On that date go.dev listed 1.27.3 and 1.26.10 as supported.
 - **Tradeoff:** users on 1.26 can't `go install` without Go downloading 1.27 for them. Prebuilt binaries aren't affected. In return, any 1.27 feature can be used.
 - **`go 1.27`** is the minimum language/API version required of users. **`toolchain go1.27.3`** only says which Go this repo's builds use: an older local Go downloads it automatically. Bump it with each Go patch release.
-- **`go.uber.org/goleak`** is the only dependency, and it's test-only.
+- Dependencies: **`go.uber.org/goleak`** (tests only) and **`go.yaml.in/yaml/v3`** (rule pack; see `internal/rules`).
 
 ### `Makefile`
 - `CGO_ENABLED=0`: static binary for `FROM scratch` images, easy cross-compiling.

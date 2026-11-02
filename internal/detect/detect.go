@@ -33,9 +33,9 @@ type File struct {
 
 // Finding is one piece of cryptography found in a file.
 type Finding struct {
-	RuleID     string // e.g. "go-rsa-import"
-	Algorithm  string // RSA, ECDSA, EdDSA, DH, AES, SHA1, MD5 ...
-	Primitive  string // pke, signature, kem, hash, block-cipher, key-agree
+	RuleID     string // a rules.Rule ID, e.g. "go-rsa-import"
+	Algorithm  string // one of rules.Algorithms: RSA, ECDSA, ML-KEM, AES, SHA-1 ...
+	Primitive  string // one of rules.Primitives (CycloneDX names), or "" if unknown
 	KeySize    int    // 0 if unknown
 	Mode       string // CBC, GCM, ECB ...
 	File       string // set by the crawler, not the detector

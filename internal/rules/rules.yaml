@@ -1,0 +1,190 @@
+# ShorStop built-in rule pack. Format documented in rules.go (type Rule).
+# Rule IDs appear in reports and in `// shorstop:ignore <rule-id>` comments,
+# so never rename or reuse one; retire it and add a new ID instead.
+version: 1
+
+rules:
+  # ---------- Go standard library: public-key (quantum-vulnerable) ----------
+  - id: go-rsa-import
+    description: Imports crypto/rsa; RSA is broken by Shor's algorithm.
+    detector: goast
+    algorithm: RSA
+    match: { import: crypto/rsa }
+
+  - id: go-rsa-generate-key
+    description: Generates an RSA key; the key size is read from the call.
+    detector: goast
+    algorithm: RSA
+    match: { import: crypto/rsa, call: GenerateKey, key_size_arg: 1 }
+
+  - id: go-dsa-import
+    description: Imports crypto/dsa; DSA is broken by Shor's algorithm and deprecated in Go.
+    detector: goast
+    algorithm: DSA
+    primitive: signature
+    match: { import: crypto/dsa }
+
+  - id: go-ecdsa-import
+    description: Imports crypto/ecdsa; ECDSA is broken by Shor's algorithm.
+    detector: goast
+    algorithm: ECDSA
+    primitive: signature
+    match: { import: crypto/ecdsa }
+
+  - id: go-ecdh-import
+    description: Imports crypto/ecdh; elliptic-curve key agreement is broken by Shor's algorithm.
+    detector: goast
+    algorithm: ECDH
+    primitive: key-agree
+    match: { import: crypto/ecdh }
+
+  - id: go-ecdh-x25519
+    description: Uses X25519 key agreement; broken by Shor's algorithm.
+    detector: goast
+    algorithm: X25519
+    primitive: key-agree
+    key_size: 255
+    match: { import: crypto/ecdh, call: X25519 }
+
+  - id: go-elliptic-import
+    description: Imports crypto/elliptic, the low-level curve package behind ECDSA and ECDH.
+    detector: goast
+    algorithm: ECC
+    match: { import: crypto/elliptic }
+
+  - id: go-ed25519-import
+    description: Imports crypto/ed25519; EdDSA is broken by Shor's algorithm.
+    detector: goast
+    algorithm: EdDSA
+    primitive: signature
+    key_size: 255
+    match: { import: crypto/ed25519 }
+
+  - id: go-x-ed25519-import
+    description: Imports golang.org/x/crypto/ed25519; EdDSA is broken by Shor's algorithm.
+    detector: goast
+    algorithm: EdDSA
+    primitive: signature
+    key_size: 255
+    match: { import: golang.org/x/crypto/ed25519 }
+
+  - id: go-x-curve25519-import
+    description: Imports golang.org/x/crypto/curve25519; X25519 is broken by Shor's algorithm.
+    detector: goast
+    algorithm: X25519
+    primitive: key-agree
+    key_size: 255
+    match: { import: golang.org/x/crypto/curve25519 }
+
+  # ---------- Go standard library: post-quantum (quantum-safe) ----------
+  - id: go-mlkem-import
+    description: Imports crypto/mlkem, the NIST FIPS 203 post-quantum KEM.
+    detector: goast
+    algorithm: ML-KEM
+    primitive: kem
+    match: { import: crypto/mlkem }
+
+  - id: go-mldsa-import
+    description: Imports crypto/mldsa, the NIST FIPS 204 post-quantum signature scheme.
+    detector: goast
+    algorithm: ML-DSA
+    primitive: signature
+    match: { import: crypto/mldsa }
+
+  # ---------- Go: symmetric ciphers ----------
+  - id: go-aes-import
+    description: Imports crypto/aes; the key size decides whether it is weakened by Grover's algorithm.
+    detector: goast
+    algorithm: AES
+    primitive: block-cipher
+    match: { import: crypto/aes }
+
+  - id: go-des-import
+    description: Imports crypto/des; DES is broken today.
+    detector: goast
+    algorithm: DES
+    primitive: block-cipher
+    key_size: 56
+    match: { import: crypto/des }
+
+  - id: go-des-triple
+    description: Creates a 3DES cipher; 3DES is broken today (64-bit block, Sweet32).
+    detector: goast
+    algorithm: 3DES
+    primitive: block-cipher
+    key_size: 168
+    match: { import: crypto/des, call: NewTripleDESCipher }
+
+  - id: go-rc4-import
+    description: Imports crypto/rc4; RC4 is broken today.
+    detector: goast
+    algorithm: RC4
+    primitive: stream-cipher
+    match: { import: crypto/rc4 }
+
+  # ---------- Go: hashes ----------
+  - id: go-md5-import
+    description: Imports crypto/md5; MD5 is broken today.
+    detector: goast
+    algorithm: MD5
+    primitive: hash
+    match: { import: crypto/md5 }
+
+  - id: go-sha1-import
+    description: Imports crypto/sha1; SHA-1 is broken today.
+    detector: goast
+    algorithm: SHA-1
+    primitive: hash
+    match: { import: crypto/sha1 }
+
+  - id: go-x-md4-import
+    description: Imports golang.org/x/crypto/md4; MD4 is broken today.
+    detector: goast
+    algorithm: MD4
+    primitive: hash
+    match: { import: golang.org/x/crypto/md4 }
+
+  - id: go-sha256-import
+    description: Imports crypto/sha256; acceptable, listed for the CBOM inventory.
+    detector: goast
+    algorithm: SHA-256
+    primitive: hash
+    match: { import: crypto/sha256 }
+
+  - id: go-sha512-import
+    description: Imports crypto/sha512; acceptable, listed for the CBOM inventory.
+    detector: goast
+    algorithm: SHA-512
+    primitive: hash
+    match: { import: crypto/sha512 }
+
+  - id: go-sha3-import
+    description: Imports crypto/sha3; acceptable, listed for the CBOM inventory.
+    detector: goast
+    algorithm: SHA-3
+    primitive: hash
+    match: { import: crypto/sha3 }
+
+  # ---------- Any language: cipher-suite strings ----------
+  - id: generic-aes128-cbc
+    description: An AES-128-CBC cipher string; AES-128 is weakened by Grover's algorithm.
+    detector: regex
+    algorithm: AES
+    primitive: block-cipher
+    key_size: 128
+    mode: CBC
+    match: { pattern: '(?i)\baes[-_]?128[-_]?cbc\b' }
+
+  - id: generic-rsa-bits
+    description: An RSA key-size string such as RSA-2048.
+    detector: regex
+    algorithm: RSA
+    match: { pattern: '(?i)\brsa[-_:]?(?P<bits>1024|2048|3072|4096)\b' }
+
+  - id: generic-3des
+    description: A 3DES cipher string; 3DES is broken today.
+    detector: regex
+    algorithm: 3DES
+    primitive: block-cipher
+    key_size: 168
+    match: { pattern: '(?i)\b(des-ede3|3des|triple-?des)\b' }
