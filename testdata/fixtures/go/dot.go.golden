@@ -1,0 +1,2 @@
+6	go-rsa-import	RSA		0	high	. "crypto/rsa"
+10	go-rsa-generate-key	RSA		1024	high	GenerateKey(rand.Reader, 1024)

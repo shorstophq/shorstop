@@ -1,0 +1,13 @@
+5	go-aes-import	AES	block-cipher	0	high	"crypto/aes"
+6	go-dsa-import	DSA	signature	0	high	"crypto/dsa" //nolint:staticcheck // deprecated, on purpose
+7	go-ecdsa-import	ECDSA	signature	0	high	"crypto/ecdsa"
+8	go-elliptic-import	ECC		0	high	"crypto/elliptic"
+9	go-md5-import	MD5	hash	0	high	_ "crypto/md5" // blank import still counts: it registers MD5
+10	go-rc4-import	RC4	stream-cipher	0	high	"crypto/rc4"
+11	go-sha1-import	SHA-1	hash	0	high	"crypto/sha1"
+12	go-sha256-import	SHA-256	hash	0	high	"crypto/sha256"
+13	go-sha3-import	SHA-3	hash	0	high	"crypto/sha3"
+14	go-sha512-import	SHA-512	hash	0	high	"crypto/sha512"
+17	go-ed25519-import	EdDSA	signature	255	high	ed "crypto/ed25519" // alias
+18	go-x-curve25519-import	X25519	key-agree	255	high	"golang.org/x/crypto/curve25519"
+19	go-x-md4-import	MD4	hash	0	high	"golang.org/x/crypto/md4"

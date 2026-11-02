@@ -1,0 +1,10 @@
+5	go-des-import	DES	block-cipher	56	high	"crypto/des"
+6	go-ecdh-import	ECDH	key-agree	0	high	"crypto/ecdh"
+8	go-rsa-import	RSA		0	high	"crypto/rsa"
+9	go-rsa-import	RSA		0	high	r2 "crypto/rsa"
+15	go-rsa-generate-key	RSA		2048	high	rsa.GenerateKey(rand.Reader, 2048)
+16	go-rsa-generate-key	RSA		4096	high	r2.GenerateKey(rand.Reader, 0x1000) // aliased import, hex literal
+17	go-rsa-generate-key	RSA		0	high	rsa.GenerateKey(rand.Reader, bits)  // a constant: key size unknown (0)
+18	go-rsa-generate-key	RSA		0	high	rsa.GenerateKey(rand.Reader)        // too few arguments: no panic, size unknown
+21	go-des-triple	3DES	block-cipher	168	high	des.NewTripleDESCipher(nil)
+23	go-ecdh-x25519	X25519	key-agree	255	high	ecdh.X25519()

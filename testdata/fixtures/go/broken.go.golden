@@ -1,0 +1,4 @@
+6	go-md5-import	MD5	hash	0	high	"crypto/md5"
+8	go-rsa-import	RSA		0	high	"crypto/rsa"
+11	go-rsa-generate-key	RSA		2048	high	func before() { rsa.GenerateKey(rand.Reader, 2048); md5.New() }
+error: 13:14: expected ')', found '{'

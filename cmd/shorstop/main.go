@@ -17,6 +17,8 @@ import (
 
 	"github.com/shorstop/shorstop/internal/crawler"
 	"github.com/shorstop/shorstop/internal/detect"
+	"github.com/shorstop/shorstop/internal/detect/goast"
+	"github.com/shorstop/shorstop/internal/rules"
 )
 
 // version is set at build time with -ldflags "-X main.version=v1.2.3".
@@ -83,8 +85,11 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		MaxFileSize: int64(maxFileSize),
 		Excludes:    excludes,
 	}
-	// No detectors exist yet (Phase 2); the crawl still runs and reports eligible files.
-	var dets []detect.Detector
+	dets, err := detectors()
+	if err != nil {
+		fmt.Fprintf(stderr, "shorstop: loading rules: %v\n", err)
+		return exitError
+	}
 
 	res, err := crawler.Scan(ctx, opts, dets)
 	if err != nil {
@@ -146,6 +151,17 @@ func writeOutput(path string, stdout io.Writer, write func(io.Writer) error) err
 		}
 	}
 	return err
+}
+
+// detectors builds every detector from the built-in rule pack.
+func detectors() ([]detect.Detector, error) {
+	pack, err := rules.Builtin()
+	if err != nil {
+		return nil, err
+	}
+	return []detect.Detector{
+		goast.New(pack.ForDetector(rules.DetectorGoAST)),
+	}, nil
 }
 
 func summary(res *crawler.Result) string {

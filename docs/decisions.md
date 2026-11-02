@@ -42,6 +42,65 @@ Each piece of state has exactly one owning goroutine, so the crawler uses **no m
 
 ---
 
+## `internal/detect/snippet.go`
+
+### `const MaxSnippet = 120` / `func Snippet(content, n) string`
+- **What it does:** returns line *n* of the file, with whitespace trimmed and cut to 120 characters, for `Finding.Snippet`. It lives in `detect`, not in one detector, because every line-based detector (goast now, regex next) needs exactly this.
+- **Counts runes, not bytes**, and cuts on a rune boundary. A byte cut would split a multi-byte character and put invalid UTF-8 into JSON/SARIF output. Invalid bytes already in the source are replaced with U+FFFD for the same reason.
+- When cut, the snippet keeps 119 runes and adds `…`, so its total length stays exactly 120 and readers can see it was truncated.
+- `TrimSpace` also removes the `\r` of CRLF files, so Windows line endings don't leak into reports.
+- *Tradeoff:* it scans from the start of the file for every finding, which is O(file size) per call. Findings are rare (a handful per file), and files are capped by `--max-file-size`, so a line-offset index isn't worth it yet. Revisit if the regex detector shows up in a profile.
+
+---
+
+## `internal/detect/goast/goast.go`
+
+### `type pkgRules` / `type Detector` / `func New(rs) *Detector`
+- **Data structure:** `map[importPath]*pkgRules`, where each entry holds `onImport []*Rule` and `calls map[funcName][]*Rule`. A file's imports and each call expression take one map lookup, never a scan over all rules.
+- Slices of rules, not single rules: two rules may share an import and call, and both must fire.
+- **Read-only after `New`**, so all workers share it with no locks, which is what `detect.Detector` requires.
+- `New` skips rules for other detectors instead of returning an error. It's always given `pack.ForDetector("goast")`, and skipping is the safer failure: a regex rule with an empty `Import` would otherwise be indexed under `""`.
+
+### `func (*Detector) Supports(path, binary) bool`
+- `.go` files that aren't binary. **`_test.go` files are included:** crypto used in tests is still crypto in the codebase, and leaving them out would understate the inventory. *Open:* the reporters may want a "test file" flag later to lower their severity.
+- Suffix only, no build-tag check: a file for another OS or architecture still ships crypto on that platform.
+
+### `func (d *Detector) Detect(ctx, f) ([]Finding, error)`
+- **Two passes, as the plan says.** Pass 1 parses with `parser.ImportsOnly`, so the parser stops after the import block. That alone serves every import rule. Pass 2, a full parse, runs only if a matched import has call rules (today only `crypto/rsa`, `crypto/des` and `crypto/ecdh`). On Go's standard library source (10,114 files) a scan takes about 1 s at 8 workers.
+- **`parser.SkipObjectResolution`** in both passes: we never use `ast.Object` (it's deprecated), and skipping it makes parsing faster.
+- **The filename passed to the parser is empty.** The crawler's `FileError` already adds the path, so parse errors read `13:14: expected ')'` rather than repeating the path.
+- **Partial parses:** `go/parser` returns a partial AST along with the error. We keep the findings from it **and** return the error, which the scan reports as a warning. *Options:* (a) drop the file silently, which would miss real crypto; (b) findings only, which would hide that the file wasn't fully read; (c) both. **Chose (c):** a security scanner shouldn't silently say "nothing here" about a file it couldn't read. *Cost:* deliberately broken test files produce warnings (4 in Go's own source).
+- **Import matching** is an exact lookup on the unquoted path. Import findings go on the import line, so every file that imports `crypto/rsa` is one CBOM occurrence.
+- **Call matching:** `pkg.Func(...)` is resolved through a `map[localName]*pkgRules` built from the imports. Bare `Func(...)` is matched against a `[]*pkgRules` of dot imports. A blank import (`_`) adds no call matches, since a blank import can't be called.
+- **Only call expressions count.** `f := rsa.GenerateKey` isn't reported as a call, though the file's import finding still covers the package. Key-size arguments only exist on calls.
+- **Known limitation, no type checking:** a local variable that shadows the package name (`rsa := x; rsa.GenerateKey(...)`) would be reported as a call. Getting this right needs `go/types` and the imported packages, which are slow and often unavailable (no `go mod download` in CI scanners). Shadowing an imported crypto package name is rare, and `// shorstop:ignore` (Phase 5) handles the leftovers.
+- `ctx` is checked between the passes, so a cancelled scan doesn't start a full parse. Pass 1 findings are still returned with the error, consistent with the interface contract.
+- Every finding is high confidence (the rule default for goast): the code was parsed, not pattern-matched.
+
+### `func localName(imp, importPath) string`
+The alias if there is one, otherwise `path.Base(importPath)`. That's correct for every path the rules use (std and `golang.org/x/crypto/*`). It would be wrong for `…/v2`-style paths or packages whose name differs from their directory. Getting it right in general means reading the imported package, which needs the same type-checking setup ruled out above.
+
+### `func intLiteral(e) int`
+- Reads `2048`, `0x800` and `2_048` (`strconv.ParseInt` with base 0 follows Go's literal syntax). It returns 0 (unknown) for constants, variables, expressions, non-positive values, and anything over 32 bits.
+- *Tradeoff:* `const bits = 3072; rsa.GenerateKey(r, bits)` gives an unknown size. Following file-local constants is possible, but this is the "literals" scope the plan sets; the unknown size is still reported, just without a size.
+- Key-size argument index beyond `len(call.Args)` (code that doesn't compile) also gives 0 rather than a panic. `calls.go` has a fixture for it.
+
+### `func finding(r, line, bits, content) Finding`
+Copies the rule's fields into a `Finding`. A size read from the code wins over the rule's fixed `key_size` (the rule schema forbids setting both, so this is only the fallback order). `File` and `Detector` are left empty; the crawler fills them in.
+
+### Tests: `testdata/fixtures/go/*.go` + `*.go.golden`
+- **Golden files**, as the plan requires. Each fixture is checked against its `.golden` file, generated with `go test ./internal/detect/goast -update` and reviewed by hand. The format is **tab-separated text, one finding per line** (line, rule, algorithm, primitive, bits, confidence, snippet), plus the error. Chosen over JSON because a rule change then shows up as a one-line diff a reviewer can read.
+- Fixtures run against the **built-in rule pack**, so a change to `rules.yaml` that changes results fails here until the golden files are updated on purpose.
+- Fixtures: `imports.go` (every import rule, alias, blank import), `calls.go` (key sizes, hex, constant, too few args, function value, two aliases of one package), `dot.go`, `clean.go` (crypto names only in strings, comments and a local type: no findings), `pqc.go`, `broken.go` (partial parse plus error).
+- They sit at the repo root, as the plan says (`testdata/fixtures/<lang>/`); `go build`/`vet` ignore `testdata`, and lint excludes it.
+
+---
+
+## `cmd/shorstop/main.go` — `func detectors() ([]detect.Detector, error)`
+Builds every detector from `rules.Builtin()`, in one place, so `run` stays about flags and output. A broken embedded pack exits with code 2 and `loading rules: …`. `TestBuiltinLoads` makes that unreachable for shipped builds, but the path exists for `--rules` later.
+
+---
+
 ## `internal/rules/rules.go` + `rules.yaml`
 
 The rule pack: data that tells rule-driven detectors (`goast`, `regex`) what to look for. The schema was pulled forward from Phase 3 so detectors are built against it from the start rather than refactored later.

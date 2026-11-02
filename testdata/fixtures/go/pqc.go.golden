@@ -1,0 +1,2 @@
+5	go-mldsa-import	ML-DSA	signature	0	high	"crypto/mldsa"
+6	go-mlkem-import	ML-KEM	kem	0	high	"crypto/mlkem"
