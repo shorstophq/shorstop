@@ -132,7 +132,10 @@ Streamlined NTRU Prime, the post-quantum half of OpenSSH's **default** key excha
 - **Data structures:** an index slice stably sorted by line (findings are grouped by line without reordering `fs`), and a `[]bool` drop mask. Comparisons are O(k²) within a line group of size *k*. Lines rarely have more than a dozen findings (a long `ssl_ciphers`), so that's cheap. Filtering is in place, with no new allocation for the result.
 
 ### `func subsumes(a, b *Finding) bool` / `func covers[T](a, b T) bool`
-`covers` is a generic helper ("b is unknown, or equals a") used for the four detail fields, so int and string fields use the same rule. Pointer arguments avoid copying the ~250-byte `Finding` on every comparison.
+`covers` is a generic helper ("b is unknown, or equals a") used for the four detail fields, so int and string fields use the same rule. Pointer arguments avoid copying the ~250-byte `Finding` on every comparison. **`PURL` is part of the subject** (added with the deps detector), so two libraries named on one line are never merged into one.
+
+## `internal/detect/detect.go` — `PURL` (added with the deps detector)
+A dependency finding names a **library**, not one algorithm, so it carries its **Package URL** (`pkg:npm/node-forge@1.3.1`). That's the identifier CycloneDX uses for components, so the CBOM reporter can list the library as a component and link the crypto asset to it, and the backend can join findings with SBOM data later. *Option rejected:* separate name, version and ecosystem fields. purl is the standard way to pack exactly those, and reporters would rebuild it anyway.
 
 ---
 
@@ -381,8 +384,82 @@ A linear lookup in a YAML mapping node's key/value pairs. Mappings in manifests 
 
 ---
 
+## `internal/detect/deps/` — `deps.go`, `lines.go`, `npm.go`, `python.go`, `jvm.go`, `other.go`
+
+Finds known crypto libraries among a project's declared dependencies, driven by the `deps` rules. **Why it's worth having at low confidence:** it reaches crypto the other detectors can't read: minified bundles, compiled dependencies, and languages without regex rules yet. It also reports the library's identity (purl), which the CBOM needs either way.
+
+**No new dependencies:** JSON and XML come from the standard library, YAML (pnpm) from the existing `go.yaml.in/yaml/v3`. The TOML files (poetry.lock, Cargo.lock/toml, pyproject.toml) are read line by line. *Option rejected:* a TOML library. It would be a new dependency for reading `name =` and `version =` keys from files that tools write in a fixed shape. *Cost:* hand-written edge cases. Exotic TOML (multi-line inline tables) can be missed, which is acceptable for low-confidence hints. A fixture exists for each shape we do read.
+
+### `deps.go`
+
+#### `type dep` / `type parser` / `func parserFor(path)`
+- One `parser{eco, parse}` per file type, chosen **by file name**: go.mod; package.json, package-lock.json/npm-shrinkwrap.json, yarn.lock, pnpm-lock.yaml; requirements*.txt (and `requirements/*.txt`, pip-tools `.in`), poetry.lock, pyproject.toml, Pipfile.lock; pom.xml, build.gradle(.kts); composer.json/lock; Cargo.toml/lock; Gemfile.lock; *.csproj/fsproj/vbproj, packages.config, Directory.Packages.props.
+- That's the plan's list plus the manifests of every language the regex detector covers. *Not covered yet:* go.sum (hashes only; go.mod already names the modules), Pipfile (TOML), setup.py/setup.cfg, Gemfile (Ruby code), Gradle version catalogs (`libs.versions.toml`).
+- **Manifests and lockfiles are both read**, so a library can be reported from package.json (direct dependency, version range) *and* the lockfile (exact version, plus transitive copies like `selfsigned/node_modules/node-forge`). Those are different files, hence different occurrences. A transitive copy is real code shipped with the project.
+
+#### `func normalize(eco, name)`
+Registry-equivalent spellings compare equal: PyPI uses PEP 503 (lower-case, runs of `-_.` → `-`, so `liboqs_python` = `liboqs-python`), Cargo treats `-` and `_` the same, npm/Composer/RubyGems/NuGet compare case-insensitively. **Go module paths and Maven coordinates stay case-sensitive**, because that's how those ecosystems resolve them (`github.com/ProtonMail/go-crypto` ≠ `…/protonmail/…`).
+
+#### `func purl(eco, name, version)`
+Builds Package URLs per the purl spec: `pkg:maven/group/artifact`, npm scopes as `%40scope/name`, PyPI names normalised, `+` in versions encoded as `%2B`. The version is included **only when exact**. A manifest range (`^1.3.1`) isn't a version, and a purl with one would mislead. The lockfile occurrence supplies the exact one.
+
+#### `type index` / `type prefixRule` / `func (ix *index) match(norm)`
+- **Data structures:** per ecosystem, `exact map[normalized name][]*Rule` (one lookup per dependency) and a `[]prefixRule` slice for the trailing-`*` rules, checked by `HasPrefix`. A lockfile with 2,000 packages costs 2,000 map lookups plus 2,000 × (a handful of prefix rules).
+- `append(slices.Clip(out), …)` keeps the prefix results from writing into the map's shared slice.
+
+#### `func New` / `Supports` / `Detect`
+- `Supports` accepts a file only if its ecosystem has rules, so a detector built with none never makes the crawler read lockfiles.
+- **A file that doesn't parse gives an error (a warning) and no findings.** A half-read lockfile could miss libraries silently, and saying nothing about a broken file is the failure the project avoids everywhere else.
+- Findings are sorted by line (stable), and the snippet is the manifest line, e.g. `"node-forge": "^1.3.1",`.
+- *Known limitation:* lockfiles over `--max-file-size` (default 2 MB) are skipped as "too large" by the crawler. Big monorepo `package-lock.json` files exceed that. The CLI already counts and prints skipped files; raising the limit per file type is left for Phase 5's config file.
+
+### `lines.go`
+
+#### `func jsonKeyLine(content, key)` / `func jsonValueLine(content, field, value)`
+`encoding/json` reports no positions, so lines are found by searching the text: the first `"key"` **followed by `:`** (so the same string appearing as a value elsewhere doesn't count), or the first `"field": "value"` pair. *Option rejected:* a position-aware JSON tokenizer, which is a lot of code for line numbers on low-confidence hints. *Cost:* in npm lockfile v1, a name that appears as a nested key earlier gets that earlier line. v2/v3 lockfiles use unique `node_modules/...` keys, so they're exact.
+
+#### `func exact(v)` / `var exactSemver`
+A version string is kept only if it looks like an exact version (`1.3.1`, `v0.58.0`, `2.0.0-rc.1`, `1.2.3.4`), not a range (`^`, `~`, `>=`, `*`). Each caller adds its ecosystem's rule on top (Cargo needs a leading `=`; PEP 508 needs `==`).
+
+#### `func splitLines` / `func lineAt`
+Shared helpers: lines without `\r`, and byte offset → 1-based line.
+
+### `npm.go`
+- **`packageJSON`:** the four dependency maps; versions are ranges, so only exact pins are kept. Map order is random, so results are sorted (`sortDeps`).
+- **`npmLock`:** lockfile v2/v3 `packages` keyed by install path (name = after the last `node_modules/`, so nested copies are found); the root `""` entry and workspace paths are skipped. v1 is a nested `dependencies` tree, walked recursively.
+- **`yarnLock`:** classic and Berry. An entry header at column 0 lists specs; the name is taken before `@npm:` (Berry) or before the last `@` (`@scope/name@^1` keeps its scope). Then the indented `version` line is read, quoted (classic) or `version:` (Berry).
+- **`pnpmLock`:** YAML keys under `packages`, with the node's line number. Three key formats are supported: v9 `name@1.2.3`, v6 `/name@1.2.3(peer)`, and v5 `/name/1.2.3_peer@ver`. **v5 is checked first**, because its peer suffix contains an `@` of its own. The first version split `/openpgp/5.11.0_react@18.2.0` at that `@`, and the fixture caught it.
+- **`sortDeps`** sorts by line then name and drops exact duplicates.
+
+### `python.go`
+- **`requirement`** (PEP 508): the distribution name, plus a version only for an exact `==` pin (not `===`, not `==3.*`).
+- **`requirementsTxt`:** skips options (`-r`, `-e`, `--hash`, `--index-url`) and bare URLs, keeps `name @ url` direct references, and handles `\` continuations, since each physical line is read alone and the `--hash` lines start with `-`.
+- **`tomlPackages`** (poetry.lock **and** Cargo.lock, which share the `[[package]] name/version` shape): reads `name` and `version` inside each `[[package]]` table.
+- **`pyproject`:** PEP 621 `[project] dependencies`, `[project.optional-dependencies]`, PEP 735 `[dependency-groups]` (arrays of requirement strings, followed across lines until `]`), and Poetry's `[tool.poetry.*dependencies]` tables (`name = constraint`, skipping `python`).
+- **`pipfileLock`:** JSON `default` and `develop` maps; versions are `==x`.
+- **`tomlKeyString` / `tomlHeader` / `tomlQuoted`:** the small TOML subset the readers above need.
+
+### `jvm.go`
+- **`pom`:** `encoding/xml` token stream, collecting `groupId`/`artifactId`/`version` for every `<dependency>` (dependencies, dependencyManagement, plugin dependencies), with the line from `Decoder.InputPos`. **Property versions (`${bc.version}`) are left unknown**, because resolving them needs the parent-POM chain, maybe from a remote repository. Non-strict decoding tolerates real-world POMs, but it also accepts plain text, so a file with no `<project>` element is an error rather than a silent empty result (`TestMalformed` caught this).
+- **`gradle`:** Gradle files are programs, so only the two literal notations are read: `"group:artifact:version"` strings and `group: …, name: …, version: …` maps, skipping comment lines. Versions from variables or version catalogs aren't resolved.
+- **`ptrIf`:** a small helper so `groupId`/`artifactId` text is captured only inside a `<dependency>`.
+
+### `other.go`
+- **`goMod`:** `require` lines and `require ( … )` blocks; `// indirect` comments are stripped. `replace` and `exclude` don't add dependencies.
+- **`composerJSON` / `composerLock`:** `require` and `require-dev`, skipping platform requirements (`php`, `ext-*`, which have no `/`). In the lock, the `v` prefix is dropped from versions, matching the purl convention.
+- **`cargoToml`:** `[dependencies]`, `[dev-dependencies]`, `[build-dependencies]`, their `[target.<cfg>.…]` forms, `[workspace.dependencies]`, and `[dependencies.<name>]` headers. **A renamed dependency (`alias = { package = "real" }`) is reported by its real name**, which is what the rule matches. **A bare Cargo version (`"0.9"`) is a caret range, so only `=x.y.z` is taken as exact**, including inside inline tables. The first version treated `"0.9"` as exact; the golden review caught it.
+- **`gemLock`:** gems under `GEM` → `specs:` at four-space indent; six-space lines are their dependencies, not resolved gems.
+- **`nugetXML`:** `<PackageReference>` (attribute or child `<Version>`), `<PackageVersion>` (central package management), and `packages.config`'s `<package id version>`.
+
+### Tests: `testdata/fixtures/deps/<ecosystem>/`
+- One realistic file per format (19), each mixing crypto libraries, ordinary packages and **near-name packages that must not match** (`md5-hex`, `rsa-tools`, a `"md5"` npm script, `universalify`-style substrings). Goldens are in `deps/golden/`.
+- `TestNormalizeAndPURL`, `TestMatch` (wildcard boundaries, case rules per ecosystem), `TestSupports`, and `TestMalformed`, where five formats must report a broken file.
+- **Checked on real files on this machine:** Go's own `go.mod` reports `golang.org/x/crypto` with its pseudo-version in the purl. 42 package files from npm's `npx` cache gave no findings, and a text search of those lockfiles confirmed none of the listed libraries appear (the only substring hit was `universalify`).
+
+---
+
 ## `cmd/shorstop/main.go` — `func detectors() ([]detect.Detector, error)`
-Builds every detector from `rules.Builtin()`, in one place, so `run` stays about flags and output. A broken embedded pack exits with code 2 and `loading rules: …`. `TestBuiltinLoads` makes that unreachable for shipped builds, but the path exists for `--rules` later. Order: goast, cert, config, regex. **Order matters for duplicates:** when `detect.Dedupe` finds two identical findings, the earlier detector's is kept. The parsing detectors come before regex, so the more precise rule ID survives.
+Builds every detector from `rules.Builtin()`, in one place, so `run` stays about flags and output. A broken embedded pack exits with code 2 and `loading rules: …`. `TestBuiltinLoads` makes that unreachable for shipped builds, but the path exists for `--rules` later. Order: goast, cert, config, deps, regex. **Order matters for duplicates:** when `detect.Dedupe` finds two identical findings, the earlier detector's is kept. The parsing detectors come before regex, so the more precise rule ID survives.
 
 ---
 
@@ -410,6 +487,13 @@ The rule pack: data that tells rule-driven detectors (`goast`, `regex`) what to 
 - **Primitive names are CycloneDX 1.6's** (`block-cipher`, `key-agree`, `kem`, …), so the CBOM reporter can copy them through without a mapping table. "Unknown" is an empty string rather than the literal `unknown`, because a rule like `go-rsa-import` really doesn't know whether RSA is used for encryption or signatures.
 - Slices rather than maps: they keep a stable order for error messages ("known: …"), and with ~25 entries a linear `slices.Contains` costs nothing at load time.
 - `ECC` was added for `crypto/elliptic`, which is curve math under both ECDSA and ECDH, so neither name would be accurate.
+
+### `DetectorDeps`, `var Ecosystems`, `Match.Ecosystem` / `Match.Package` (added with the deps detector)
+- **The library list is data** (`detector: deps` rules), like the other rule-driven detectors, so the community can add a library in one YAML line without touching Go. Default confidence is **low**: a dependency says a library is installed, not that, or how, the code uses it. That matches the plan's severity row, "low: dependency-only hints".
+- **`algorithm` is optional for deps rules only.** `node-forge` provides RSA, AES, 3DES, MD5 and SHA-1. Naming one would be invented, and naming all would claim usage we can't see. It's set only for single-purpose libraries (`node-rsa` → RSA, `ml-kem` → ML-KEM), so the classifier can still call those quantum-safe or broken. Multi-algorithm toolkits stay unknown, and their description says what they contain.
+- **`Ecosystems`** is a closed set of purl types (`cargo`, `composer`, `gem`, `golang`, `maven`, `npm`, `nuget`, `pypi`), so the rule's ecosystem *is* the purl type, with no mapping table.
+- **`match.package` may end in `*`, and only there, and only after a separator** (`org.bouncycastle:bcprov-*`). Bouncy Castle ships one artifact per JDK range (`-jdk15on`, `-jdk18on`, …), so exact names would rot. Requiring a separator before the `*` stops `forge*` from matching unrelated names like `forgefoo`. A lone `*` is rejected. *Option rejected:* full globs or regexes, which are more than any ecosystem's naming needs, and easy to write too broadly.
+- Each detector's `match` fields are rejected on the others' rules, as before; deps rules also reject `languages` (the ecosystem already says where they apply).
 
 ### `var Modes` / `var Languages` (added with the regex detector)
 - **`Modes`** is a closed set (ECB, CBC, CTR, GCM, CCM, CFB, OFB, XTS, OCB, EAX, SIV) for the same reason as `Algorithms`: the classifier keys `INSECURE_MODE` off it. A rule's fixed `mode` must be in the set, or loading fails. A captured `(?P<mode>)` value outside it (`MODE_OPENPGP`) becomes an empty mode at scan time, because a source line can say anything and the scan must not fail on it.
@@ -477,6 +561,7 @@ Returns subexpression *i*'s text from a `FindAllSubmatchIndex` location, if it t
 - **22 `goast` rules:** every crypto import the plan lists, plus calls where the call adds information. `rsa.GenerateKey` takes its key size from argument 1. `des.NewTripleDESCipher` means 3DES, not DES. `ecdh.X25519` names the curve.
 - `crypto/mlkem` and `crypto/mldsa` (both in Go 1.27's standard library; checked with `go list std`) are included so reports show quantum-safe progress.
 - SHA-256/512/SHA-3 are included even though they're acceptable: a CBOM is an inventory, not just a list of problems.
+- **59 `deps` rules** (added with the deps detector), one per library: npm 15, PyPI 11, Maven 6, Go 5, Composer 4, Cargo 11, RubyGems 3, NuGet 4. They cover the plan's list (`node-forge`, `jsrsasign`, `pycryptodome`, Bouncy Castle, `phpseclib`) and the common libraries for each language the regex detector covers, including **post-quantum libraries** (`@noble/post-quantum`, `liboqs-python`, `kyber-py`, CIRCL, `ml-kem`), so dependency findings show progress too. Written as one-line flow mappings, since each rule is just an ID, a description and a package.
 - **129 `regex` rules** (21 generic, 108 language-specific; 116 added with the regex detector, 13 shell-command rules with the config detector):
   - 8 **generic** rules with no `languages`, run on every text file: cipher names such as `aes-256-cbc` (bits and mode captured), `RSA-2048`/`rsa:4096`, 3DES and RC4 names, the PQC names `ML-KEM-768`/`ML-DSA-65`, and the hybrid `X25519MLKEM768` TLS group and `mlkem768x25519-sha256` SSH key exchange.
   - **Language rules:** Python (PyCryptodome, pyca/cryptography, hashlib, python-rsa, liboqs), Java/Kotlin (JCA names, Bouncy Castle), JavaScript/TypeScript (Node crypto, Web Crypto, node-forge, jsrsasign), PHP (openssl, md5/sha1, mcrypt, phpseclib), C# (.NET), Ruby (OpenSSL, Digest), C/C++ (OpenSSL), Rust (rsa, dalek, p256, ml-kem crates).

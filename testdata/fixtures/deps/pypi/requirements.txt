@@ -1,0 +1,12 @@
+# Fixture: pip requirements.
+pycryptodome==3.20.0
+cryptography>=42.0 ; python_version >= "3.8"
+Django==5.0.4
+rsa  # no version
+PyNaCl[tests]==1.5.0 \
+    --hash=sha256:abc
+-r base.txt
+--index-url https://example.com/simple
+https://example.com/pkg.tar.gz
+ecdsa @ https://github.com/tlsfuzzer/python-ecdsa/archive/v0.19.0.zip
+rsa-tools==1.0

@@ -1,0 +1,2 @@
+4	dep-composer-phpseclib		low	pkg:composer/phpseclib/phpseclib@3.0.37	"name": "phpseclib/phpseclib",
+9	dep-composer-sodium-compat		low	pkg:composer/paragonie/sodium_compat@1.21.1	"name": "paragonie/sodium_compat",

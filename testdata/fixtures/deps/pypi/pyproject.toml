@@ -1,0 +1,18 @@
+[project]
+name = "fixture"
+dependencies = [
+    "cryptography>=42",
+    "requests==2.31.0",
+]
+classifiers = ["License :: OSI Approved :: Apache Software License"]
+
+[project.optional-dependencies]
+pqc = ["kyber-py==0.3.0", "dilithium-py"]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+pycryptodomex = "==3.20.0"
+pyopenssl = { version = "^24.0", optional = true }
+
+[tool.ruff]
+line-length = 100

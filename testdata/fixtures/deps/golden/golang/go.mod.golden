@@ -1,0 +1,3 @@
+5	dep-go-x-crypto		low	pkg:golang/golang.org/x/crypto@v0.58.0	require golang.org/x/crypto v0.58.0
+8	dep-go-circl		low	pkg:golang/github.com/cloudflare/circl@v1.6.1	github.com/cloudflare/circl v1.6.1 // indirect
+10	dep-go-edwards25519	EdDSA	low	pkg:golang/filippo.io/edwards25519@v1.1.0	filippo.io/edwards25519 v1.1.0

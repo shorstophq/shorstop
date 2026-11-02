@@ -1,0 +1,2 @@
+3	dep-nuget-bouncycastle		low	pkg:nuget/BouncyCastle.Cryptography@2.4.0	<PackageReference Include="BouncyCastle.Cryptography" Version="2.4.0" />
+5	dep-nuget-sodium-core		low	pkg:nuget/Sodium.Core@1.3.5	<PackageReference Include="Sodium.Core">

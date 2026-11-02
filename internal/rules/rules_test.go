@@ -140,6 +140,24 @@ func TestParseErrors(t *testing.T) {
 			},
 		},
 		{
+			"deps rules",
+			"version: 1\nrules:\n" +
+				"  - { id: a, description: d, detector: deps, match: { ecosystem: npm } }\n" +
+				"  - { id: b, description: d, detector: deps, match: { ecosystem: cpan, package: '*' } }\n" +
+				"  - { id: c, description: d, detector: deps, match: { ecosystem: npm, package: 'a*b' } }\n" +
+				"  - { id: e, description: d, detector: deps, match: { ecosystem: npm, package: 'forge*' } }\n" +
+				"  - { id: f, description: d, detector: deps, languages: [go], match: { ecosystem: npm, package: x, pattern: y } }\n" +
+				"  - { id: g, description: d, detector: regex, algorithm: RSA, match: { ecosystem: npm, keywords: [rsa], pattern: rsa, examples: [rsa] } }\n",
+			[]string{
+				`t.yaml:3: rule "a": deps rules need match.package`,
+				`t.yaml:4: rule "b": unknown or missing match.ecosystem "cpan"`, `t.yaml:4: rule "b": deps rules need match.package`,
+				`rule "c": match.package may only end in "*"`,
+				`rule "e": match.package "forge*": a wildcard needs a separator`,
+				`rule "f": deps rules take only`, `rule "f": languages is for regex rules`,
+				`rule "g": match.ecosystem and match.package are for deps rules, not regex`,
+			},
+		},
+		{
 			"pattern matching everything",
 			"version: 1\nrules:\n  - id: a\n" + ok + "    detector: regex\n    match: { keywords: [a], pattern: 'a*', examples: [a] }\n",
 			[]string{"matches the empty string"},

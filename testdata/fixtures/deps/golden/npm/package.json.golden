@@ -1,0 +1,3 @@
+5	dep-npm-node-forge		low	pkg:npm/node-forge	"node-forge": "^1.3.1",
+7	dep-npm-noble-curves	ECC	low	pkg:npm/%40noble/curves@1.4.0	"@noble/curves": "1.4.0"
+10	dep-npm-crypto-js		low	pkg:npm/crypto-js	"crypto-js": "~4.2.0",

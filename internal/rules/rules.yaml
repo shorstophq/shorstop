@@ -1581,3 +1581,86 @@ rules:
       keywords: [ml_dsa]
       pattern: '\bml_dsa::'
       examples: ['use ml_dsa::{MlDsa65, KeyGen};']
+
+  # =====================================================================
+  # Dependency rules: known crypto libraries in manifests and lockfiles.
+  # Low confidence by default: a dependency says a library is present, not
+  # how it is used. `algorithm` is set only when the library does one thing;
+  # multi-algorithm toolkits leave it unknown. A trailing "*" in `package`
+  # matches any suffix.
+  # =====================================================================
+
+  # ---------- npm ----------
+  - { id: dep-npm-node-forge, detector: deps, description: "node-forge: pure-JS RSA, X.509, TLS, AES, 3DES, RC2, MD5 and SHA-1.", match: { ecosystem: npm, package: node-forge } }
+  - { id: dep-npm-jsrsasign, detector: deps, description: "jsrsasign: RSA, ECDSA and DSA signatures, X.509 and JWS.", match: { ecosystem: npm, package: jsrsasign } }
+  - { id: dep-npm-node-rsa, detector: deps, algorithm: RSA, description: "node-rsa: RSA encryption and signatures; broken by Shor's algorithm.", match: { ecosystem: npm, package: node-rsa } }
+  - { id: dep-npm-jsencrypt, detector: deps, algorithm: RSA, description: "jsencrypt: RSA encryption in the browser; broken by Shor's algorithm.", match: { ecosystem: npm, package: jsencrypt } }
+  - { id: dep-npm-elliptic, detector: deps, algorithm: ECC, description: "elliptic: ECDSA, ECDH and EdDSA over several curves; broken by Shor's algorithm.", match: { ecosystem: npm, package: elliptic } }
+  - { id: dep-npm-noble-curves, detector: deps, algorithm: ECC, description: "@noble/curves: secp256k1, P-256, Ed25519 and X25519; broken by Shor's algorithm.", match: { ecosystem: npm, package: "@noble/curves" } }
+  - { id: dep-npm-noble-ed25519, detector: deps, algorithm: EdDSA, primitive: signature, description: "@noble/ed25519: Ed25519 signatures; broken by Shor's algorithm.", match: { ecosystem: npm, package: "@noble/ed25519" } }
+  - { id: dep-npm-noble-secp256k1, detector: deps, algorithm: ECDSA, primitive: signature, description: "@noble/secp256k1: secp256k1 ECDSA; broken by Shor's algorithm.", match: { ecosystem: npm, package: "@noble/secp256k1" } }
+  - { id: dep-npm-noble-post-quantum, detector: deps, description: "@noble/post-quantum: ML-KEM, ML-DSA and SLH-DSA (quantum-safe).", match: { ecosystem: npm, package: "@noble/post-quantum" } }
+  - { id: dep-npm-tweetnacl, detector: deps, description: "tweetnacl: X25519, Ed25519 and XSalsa20-Poly1305; the public-key parts are broken by Shor's algorithm.", match: { ecosystem: npm, package: tweetnacl } }
+  - { id: dep-npm-crypto-js, detector: deps, description: "crypto-js: AES, 3DES, RC4, MD5 and SHA-1 among others; unmaintained.", match: { ecosystem: npm, package: crypto-js } }
+  - { id: dep-npm-md5, detector: deps, algorithm: MD5, primitive: hash, description: "md5: MD5 hashing; MD5 is broken today.", match: { ecosystem: npm, package: md5 } }
+  - { id: dep-npm-sha1, detector: deps, algorithm: SHA-1, primitive: hash, description: "sha1: SHA-1 hashing; SHA-1 is broken today.", match: { ecosystem: npm, package: sha1 } }
+  - { id: dep-npm-openpgp, detector: deps, description: "openpgp: OpenPGP with RSA, ECC and AES.", match: { ecosystem: npm, package: openpgp } }
+  - { id: dep-npm-crystals-kyber, detector: deps, algorithm: ML-KEM, primitive: kem, description: "crystals-kyber: Kyber/ML-KEM (quantum-safe).", match: { ecosystem: npm, package: crystals-kyber } }
+
+  # ---------- PyPI ----------
+  - { id: dep-pypi-pycryptodome, detector: deps, description: "PyCryptodome: RSA, DSA, ECC, AES, DES, 3DES, RC4, MD5 and SHA-1 among others.", match: { ecosystem: pypi, package: pycryptodome } }
+  - { id: dep-pypi-pycryptodomex, detector: deps, description: "PyCryptodomex: PyCryptodome under the Cryptodome namespace.", match: { ecosystem: pypi, package: pycryptodomex } }
+  - { id: dep-pypi-pycrypto, detector: deps, description: "PyCrypto: unmaintained since 2013, with known vulnerabilities; RSA, DSA, AES, DES, RC4.", match: { ecosystem: pypi, package: pycrypto } }
+  - { id: dep-pypi-cryptography, detector: deps, description: "pyca/cryptography: RSA, EC, Ed25519, X25519, DH, AES and more.", match: { ecosystem: pypi, package: cryptography } }
+  - { id: dep-pypi-pyopenssl, detector: deps, description: "pyOpenSSL: OpenSSL bindings for TLS and X.509.", match: { ecosystem: pypi, package: pyopenssl } }
+  - { id: dep-pypi-rsa, detector: deps, algorithm: RSA, description: "python-rsa: pure-Python RSA; broken by Shor's algorithm.", match: { ecosystem: pypi, package: rsa } }
+  - { id: dep-pypi-ecdsa, detector: deps, algorithm: ECDSA, primitive: signature, description: "python-ecdsa: pure-Python ECDSA and EdDSA; broken by Shor's algorithm.", match: { ecosystem: pypi, package: ecdsa } }
+  - { id: dep-pypi-pynacl, detector: deps, description: "PyNaCl: libsodium bindings (X25519, Ed25519, XSalsa20-Poly1305).", match: { ecosystem: pypi, package: pynacl } }
+  - { id: dep-pypi-liboqs-python, detector: deps, description: "liboqs-python: Open Quantum Safe bindings (ML-KEM, ML-DSA, SLH-DSA and others; quantum-safe).", match: { ecosystem: pypi, package: liboqs-python } }
+  - { id: dep-pypi-kyber-py, detector: deps, algorithm: ML-KEM, primitive: kem, description: "kyber-py: ML-KEM in pure Python (quantum-safe).", match: { ecosystem: pypi, package: kyber-py } }
+  - { id: dep-pypi-dilithium-py, detector: deps, algorithm: ML-DSA, primitive: signature, description: "dilithium-py: ML-DSA in pure Python (quantum-safe).", match: { ecosystem: pypi, package: dilithium-py } }
+
+  # ---------- Maven (Java, Kotlin) ----------
+  - { id: dep-maven-bouncycastle-prov, detector: deps, description: "Bouncy Castle provider: nearly every classical and post-quantum algorithm.", match: { ecosystem: maven, package: "org.bouncycastle:bcprov-*" } }
+  - { id: dep-maven-bouncycastle-pkix, detector: deps, description: "Bouncy Castle PKIX: X.509, CMS, TSP and certificate handling.", match: { ecosystem: maven, package: "org.bouncycastle:bcpkix-*" } }
+  - { id: dep-maven-bouncycastle-pg, detector: deps, description: "Bouncy Castle OpenPGP.", match: { ecosystem: maven, package: "org.bouncycastle:bcpg-*" } }
+  - { id: dep-maven-tink, detector: deps, description: "Google Tink: AEAD, signatures and hybrid encryption.", match: { ecosystem: maven, package: "com.google.crypto.tink:tink" } }
+  - { id: dep-maven-nimbus-jose, detector: deps, description: "Nimbus JOSE + JWT: RSA, ECDSA and EdDSA JWS/JWE.", match: { ecosystem: maven, package: "com.nimbusds:nimbus-jose-jwt" } }
+  - { id: dep-maven-jjwt, detector: deps, description: "JJWT: JWT signing with RSA, ECDSA and HMAC.", match: { ecosystem: maven, package: "io.jsonwebtoken:jjwt-*" } }
+
+  # ---------- Go modules ----------
+  - { id: dep-go-x-crypto, detector: deps, description: "golang.org/x/crypto: SSH, OpenPGP, Ed25519, curve25519, bcrypt, MD4, Blowfish and more.", match: { ecosystem: golang, package: golang.org/x/crypto } }
+  - { id: dep-go-circl, detector: deps, description: "Cloudflare CIRCL: ML-KEM, ML-DSA, Kyber, HPKE and elliptic curves.", match: { ecosystem: golang, package: github.com/cloudflare/circl } }
+  - { id: dep-go-protonmail-crypto, detector: deps, description: "ProtonMail go-crypto: OpenPGP with RSA and ECC.", match: { ecosystem: golang, package: github.com/ProtonMail/go-crypto } }
+  - { id: dep-go-edwards25519, detector: deps, algorithm: EdDSA, description: "filippo.io/edwards25519: the edwards25519 group under Ed25519; broken by Shor's algorithm.", match: { ecosystem: golang, package: filippo.io/edwards25519 } }
+  - { id: dep-go-mlkem768, detector: deps, algorithm: ML-KEM, primitive: kem, description: "filippo.io/mlkem768: ML-KEM-768 (quantum-safe).", match: { ecosystem: golang, package: filippo.io/mlkem768 } }
+
+  # ---------- Composer (PHP) ----------
+  - { id: dep-composer-phpseclib, detector: deps, description: "phpseclib: pure-PHP RSA, DSA, EC, AES, DES, RC4 and SSH.", match: { ecosystem: composer, package: phpseclib/phpseclib } }
+  - { id: dep-composer-php-jwt, detector: deps, description: "firebase/php-jwt: JWT signing with RSA, ECDSA, EdDSA and HMAC.", match: { ecosystem: composer, package: firebase/php-jwt } }
+  - { id: dep-composer-sodium-compat, detector: deps, description: "sodium_compat: pure-PHP libsodium (X25519, Ed25519, ChaCha20-Poly1305).", match: { ecosystem: composer, package: paragonie/sodium_compat } }
+  - { id: dep-composer-defuse, detector: deps, algorithm: AES, primitive: block-cipher, description: "defuse/php-encryption: AES-256-CTR with HMAC-SHA256.", match: { ecosystem: composer, package: defuse/php-encryption } }
+
+  # ---------- Cargo (Rust) ----------
+  - { id: dep-cargo-rsa, detector: deps, algorithm: RSA, description: "rsa crate: pure-Rust RSA; broken by Shor's algorithm.", match: { ecosystem: cargo, package: rsa } }
+  - { id: dep-cargo-ring, detector: deps, description: "ring: RSA, ECDSA, Ed25519, X25519, AES-GCM and ChaCha20-Poly1305.", match: { ecosystem: cargo, package: ring } }
+  - { id: dep-cargo-openssl, detector: deps, description: "openssl crate: OpenSSL bindings.", match: { ecosystem: cargo, package: openssl } }
+  - { id: dep-cargo-ed25519-dalek, detector: deps, algorithm: EdDSA, primitive: signature, description: "ed25519-dalek: Ed25519 signatures; broken by Shor's algorithm.", match: { ecosystem: cargo, package: ed25519-dalek } }
+  - { id: dep-cargo-x25519-dalek, detector: deps, algorithm: X25519, primitive: key-agree, description: "x25519-dalek: X25519 key agreement; broken by Shor's algorithm.", match: { ecosystem: cargo, package: x25519-dalek } }
+  - { id: dep-cargo-p256, detector: deps, algorithm: ECC, description: "p256 crate: NIST P-256 ECDSA and ECDH; broken by Shor's algorithm.", match: { ecosystem: cargo, package: p256 } }
+  - { id: dep-cargo-ml-kem, detector: deps, algorithm: ML-KEM, primitive: kem, description: "ml-kem crate: ML-KEM (quantum-safe).", match: { ecosystem: cargo, package: ml-kem } }
+  - { id: dep-cargo-ml-dsa, detector: deps, algorithm: ML-DSA, primitive: signature, description: "ml-dsa crate: ML-DSA (quantum-safe).", match: { ecosystem: cargo, package: ml-dsa } }
+  - { id: dep-cargo-md5, detector: deps, algorithm: MD5, primitive: hash, description: "md5 crate: MD5 hashing; MD5 is broken today.", match: { ecosystem: cargo, package: md5 } }
+  - { id: dep-cargo-md-5, detector: deps, algorithm: MD5, primitive: hash, description: "md-5 crate (RustCrypto): MD5 hashing; MD5 is broken today.", match: { ecosystem: cargo, package: md-5 } }
+  - { id: dep-cargo-sha1, detector: deps, algorithm: SHA-1, primitive: hash, description: "sha1 crate: SHA-1 hashing; SHA-1 is broken today.", match: { ecosystem: cargo, package: sha1 } }
+
+  # ---------- RubyGems ----------
+  - { id: dep-gem-rbnacl, detector: deps, description: "RbNaCl: libsodium bindings (X25519, Ed25519, XSalsa20-Poly1305).", match: { ecosystem: gem, package: rbnacl } }
+  - { id: dep-gem-ed25519, detector: deps, algorithm: EdDSA, primitive: signature, description: "ed25519 gem: Ed25519 signatures; broken by Shor's algorithm.", match: { ecosystem: gem, package: ed25519 } }
+  - { id: dep-gem-jwt, detector: deps, description: "ruby-jwt: JWT signing with RSA, ECDSA, EdDSA and HMAC.", match: { ecosystem: gem, package: jwt } }
+
+  # ---------- NuGet (.NET) ----------
+  - { id: dep-nuget-bouncycastle, detector: deps, description: "Bouncy Castle for .NET: nearly every classical and post-quantum algorithm.", match: { ecosystem: nuget, package: BouncyCastle.Cryptography } }
+  - { id: dep-nuget-portable-bouncycastle, detector: deps, description: "Portable.BouncyCastle: an older Bouncy Castle port for .NET.", match: { ecosystem: nuget, package: Portable.BouncyCastle } }
+  - { id: dep-nuget-bouncycastle-netcore, detector: deps, description: "BouncyCastle.NetCore: an older Bouncy Castle port for .NET.", match: { ecosystem: nuget, package: BouncyCastle.NetCore } }
+  - { id: dep-nuget-sodium-core, detector: deps, description: "Sodium.Core: libsodium bindings for .NET.", match: { ecosystem: nuget, package: Sodium.Core } }

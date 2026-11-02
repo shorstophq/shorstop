@@ -1,0 +1,3 @@
+11	dep-npm-elliptic	ECC	low	pkg:npm/elliptic@6.5.5	elliptic@6.5.5:
+13	dep-npm-tweetnacl		low	pkg:npm/tweetnacl@1.0.3	/tweetnacl@1.0.3:
+15	dep-npm-openpgp		low	pkg:npm/openpgp@5.11.0	/openpgp/5.11.0_react@18.2.0:

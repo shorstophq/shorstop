@@ -30,6 +30,7 @@ const FormatVersion = 1
 const (
 	DetectorGoAST = "goast"
 	DetectorRegex = "regex"
+	DetectorDeps  = "deps"
 )
 
 // Confidence levels, from most to least certain.
@@ -43,6 +44,7 @@ const (
 var defaultConfidence = map[string]string{
 	DetectorGoAST: ConfidenceHigh,
 	DetectorRegex: ConfidenceMedium,
+	DetectorDeps:  ConfidenceLow, // a dependency says a library is present, not how it is used
 }
 
 // Algorithms is the closed set of algorithm names a rule may use. The
@@ -145,7 +147,20 @@ type Match struct {
 	// contain a keyword, and give a valid key size and mode if the pattern
 	// captures them.
 	Examples []string `yaml:"examples"`
+
+	// deps: the package ecosystem, one of Ecosystems.
+	Ecosystem string `yaml:"ecosystem"`
+	// deps: the package name as the ecosystem spells it: "node-forge",
+	// "@noble/curves", "org.bouncycastle:bcprov-jdk18on" (Maven
+	// group:artifact), "golang.org/x/crypto". A trailing "*" matches any
+	// suffix ("org.bouncycastle:bcprov-*").
+	Package string `yaml:"package"`
 }
+
+// Ecosystems is the closed set of package ecosystems a deps rule may name,
+// sorted.
+// They are Package URL (purl) types.
+var Ecosystems = []string{"cargo", "composer", "gem", "golang", "maven", "npm", "nuget", "pypi"}
 
 // Regexp returns the compiled pattern of a regex rule, or nil.
 func (r *Rule) Regexp() *regexp.Regexp { return r.re }
@@ -266,9 +281,11 @@ func (r *Rule) validate() []error {
 	if strings.TrimSpace(r.Description) == "" {
 		bad("missing description")
 	}
-	if r.Algorithm == "" {
+	// A library (deps) often provides many algorithms; only its rule may
+	// leave the algorithm unknown.
+	if r.Algorithm == "" && r.Detector != DetectorDeps {
 		bad("missing algorithm")
-	} else if !slices.Contains(Algorithms, r.Algorithm) {
+	} else if r.Algorithm != "" && !slices.Contains(Algorithms, r.Algorithm) {
 		bad("unknown algorithm %q (known: %s)", r.Algorithm, strings.Join(Algorithms, ", "))
 	}
 	if r.Primitive != "" && !slices.Contains(Primitives, r.Primitive) {
@@ -286,7 +303,7 @@ func (r *Rule) validate() []error {
 	case r.Detector == "":
 		bad("missing detector")
 	case !known:
-		bad("unknown detector %q (known: %s, %s)", r.Detector, DetectorGoAST, DetectorRegex)
+		bad("unknown detector %q (known: %s, %s, %s)", r.Detector, DetectorDeps, DetectorGoAST, DetectorRegex)
 	}
 	switch r.Confidence {
 	case "":
@@ -297,7 +314,28 @@ func (r *Rule) validate() []error {
 	}
 
 	m := r.Match
+	if r.Detector != DetectorDeps && (m.Ecosystem != "" || m.Package != "") {
+		bad("match.ecosystem and match.package are for deps rules, not %s", r.Detector)
+	}
 	switch r.Detector {
+	case DetectorDeps:
+		if m.Import != "" || m.Call != "" || m.KeySizeArg != nil || m.Pattern != "" || len(m.Keywords) > 0 || len(m.Examples) > 0 {
+			bad("deps rules take only match.ecosystem and match.package")
+		}
+		if len(r.Languages) > 0 {
+			bad("languages is for regex rules; a deps rule's ecosystem says where it applies")
+		}
+		if !slices.Contains(Ecosystems, m.Ecosystem) {
+			bad("unknown or missing match.ecosystem %q (known: %s)", m.Ecosystem, strings.Join(Ecosystems, ", "))
+		}
+		switch base, wild := strings.CutSuffix(m.Package, "*"); {
+		case strings.TrimSpace(base) == "":
+			bad("deps rules need match.package (a lone \"*\" would match every dependency)")
+		case strings.Contains(base, "*"):
+			bad("match.package may only end in \"*\", not contain one elsewhere")
+		case wild && !strings.ContainsAny(base[len(base)-1:], "-_.:/"):
+			bad("match.package %q: a wildcard needs a separator before it, e.g. \"bcprov-*\", so it can't match unrelated names", m.Package)
+		}
 	case DetectorGoAST:
 		if m.Import == "" {
 			bad("goast rules need match.import")

@@ -1,0 +1,9 @@
+{
+    "_meta": {"hash": {"sha256": "x"}},
+    "default": {
+        "pycrypto": {"version": "==2.6.1"}
+    },
+    "develop": {
+        "pytest": {"version": "==8.2.0"}
+    }
+}

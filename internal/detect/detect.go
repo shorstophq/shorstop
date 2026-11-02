@@ -45,6 +45,7 @@ type Finding struct {
 	AssetType    string       // CycloneDX assetType; "" means AssetAlgorithm
 	MaterialType string       // AssetMaterial only: MaterialPrivateKey or MaterialPublicKey
 	Protocol     string       // AssetProtocol only: a TLS/SSL version, e.g. "TLSv1.0" or "SSLv3"
+	PURL         string       // deps findings: the library's Package URL, e.g. "pkg:npm/node-forge@1.3.1"
 	Cert         *Certificate // AssetCertificate only
 	File         string       // set by the crawler, not the detector
 	Line         int          // 1-based; 0 for binary files

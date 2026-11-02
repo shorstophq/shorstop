@@ -1,0 +1,2 @@
+5	dep-cargo-rsa	RSA	low	pkg:cargo/rsa@0.9.6	name = "rsa"
+9	dep-cargo-sha1	SHA-1	low	pkg:cargo/sha1@0.10.6	name = "sha1"

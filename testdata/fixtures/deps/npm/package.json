@@ -1,0 +1,14 @@
+{
+  "name": "fixture-app",
+  "version": "1.0.0",
+  "dependencies": {
+    "node-forge": "^1.3.1",
+    "express": "^4.19.2",
+    "@noble/curves": "1.4.0"
+  },
+  "devDependencies": {
+    "crypto-js": "~4.2.0",
+    "md5-hex": "^5.0.0"
+  },
+  "scripts": { "md5": "node md5.js" }
+}

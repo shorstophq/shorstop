@@ -1,0 +1,2 @@
+5	dep-composer-phpseclib		low	pkg:composer/phpseclib/phpseclib	"phpseclib/phpseclib": "~3.0",
+9	dep-composer-php-jwt		low	pkg:composer/firebase/php-jwt@6.10.0	"firebase/php-jwt": "6.10.0"

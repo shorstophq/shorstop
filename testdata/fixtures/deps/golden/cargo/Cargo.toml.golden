@@ -1,0 +1,6 @@
+6	dep-cargo-rsa	RSA	low	pkg:cargo/rsa	rsa = "0.9"
+8	dep-cargo-md-5	MD5	low	pkg:cargo/md-5@0.10.6	hash-md5 = { package = "md-5", version = "=0.10.6" }
+9	dep-cargo-ring		low	pkg:cargo/ring	ring = "0.17"
+12	dep-cargo-ml-kem	ML-KEM	low	pkg:cargo/ml-kem	ml-kem = "0.2"
+15	dep-cargo-x25519-dalek	X25519	low	pkg:cargo/x25519-dalek	x25519-dalek = "2"
+17	dep-cargo-ed25519-dalek	EdDSA	low	pkg:cargo/ed25519-dalek	[dependencies.ed25519-dalek]

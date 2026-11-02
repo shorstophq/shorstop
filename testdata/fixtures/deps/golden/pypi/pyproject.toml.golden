@@ -1,0 +1,5 @@
+4	dep-pypi-cryptography		low	pkg:pypi/cryptography	"cryptography>=42",
+10	dep-pypi-kyber-py	ML-KEM	low	pkg:pypi/kyber-py@0.3.0	pqc = ["kyber-py==0.3.0", "dilithium-py"]
+10	dep-pypi-dilithium-py	ML-DSA	low	pkg:pypi/dilithium-py	pqc = ["kyber-py==0.3.0", "dilithium-py"]
+14	dep-pypi-pycryptodomex		low	pkg:pypi/pycryptodomex@3.20.0	pycryptodomex = "==3.20.0"
+15	dep-pypi-pyopenssl		low	pkg:pypi/pyopenssl	pyopenssl = { version = "^24.0", optional = true }

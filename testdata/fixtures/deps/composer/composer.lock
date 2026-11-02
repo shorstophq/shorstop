@@ -1,0 +1,14 @@
+{
+    "packages": [
+        {
+            "name": "phpseclib/phpseclib",
+            "version": "3.0.37",
+            "require": { "paragonie/sodium_compat": "^1.20" }
+        },
+        {
+            "name": "paragonie/sodium_compat",
+            "version": "v1.21.1"
+        }
+    ],
+    "packages-dev": []
+}

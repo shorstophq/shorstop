@@ -13,7 +13,7 @@ var confidenceRank = map[string]int{"low": 1, "medium": 2, "high": 3}
 // sshd_config is matched by both the regex and the config detector.
 //
 // Finding a subsumes finding b when they share a line and a subject
-// (algorithm, asset type, material type, protocol) and every detail b states
+// (algorithm, asset type, material type, protocol, package) and every detail b states
 // (key size, mode, parameter set, primitive) a states the same way; b may
 // leave any of them unknown. b is then dropped, and a keeps the higher of
 // the two confidences. Findings that disagree on a stated detail, such as
@@ -77,7 +77,7 @@ func subsumes(a, b *Finding) bool {
 		return false
 	}
 	if a.Line != b.Line || a.Algorithm != b.Algorithm || a.AssetType != b.AssetType ||
-		a.MaterialType != b.MaterialType || a.Protocol != b.Protocol {
+		a.MaterialType != b.MaterialType || a.Protocol != b.Protocol || a.PURL != b.PURL {
 		return false
 	}
 	return covers(a.KeySize, b.KeySize) && covers(a.Mode, b.Mode) &&
