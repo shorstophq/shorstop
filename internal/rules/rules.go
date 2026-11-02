@@ -54,7 +54,7 @@ var Algorithms = []string{
 	// Symmetric ciphers.
 	"AES", "DES", "3DES", "RC4", "ChaCha20",
 	// Hashes.
-	"MD4", "MD5", "SHA-1", "SHA-224", "SHA-256", "SHA-384", "SHA-512", "SHA-3",
+	"MD2", "MD4", "MD5", "SHA-1", "SHA-224", "SHA-256", "SHA-384", "SHA-512", "SHA-3",
 }
 
 // Primitives is the closed set of primitive names, taken from CycloneDX 1.6

@@ -1,0 +1,3 @@
+2	public-key	RSA		3072		related-crypto-material	public-key	high	ssh-rsa
+3	public-key	ECDSA	signature	384		related-crypto-material	public-key	high	ecdsa-sha2-nistp384
+5	public-key	EdDSA	signature	255		related-crypto-material	public-key	high	sk-ssh-ed25519@openssh.com

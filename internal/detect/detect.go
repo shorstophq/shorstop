@@ -2,7 +2,10 @@
 // the Finding type detectors produce.
 package detect
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // Detector finds cryptographic usage in a single file.
 //
@@ -33,14 +36,40 @@ type File struct {
 
 // Finding is one piece of cryptography found in a file.
 type Finding struct {
-	RuleID     string // a rules.Rule ID, e.g. "go-rsa-import"
-	Algorithm  string // one of rules.Algorithms: RSA, ECDSA, ML-KEM, AES, SHA-1 ...
-	Primitive  string // one of rules.Primitives (CycloneDX names), or "" if unknown
-	KeySize    int    // 0 if unknown
-	Mode       string // CBC, GCM, ECB ...
-	File       string // set by the crawler, not the detector
-	Line       int
-	Snippet    string // trimmed, max 120 chars
-	Confidence string // high (AST/cert), medium (regex), low (string match)
-	Detector   string // set by the crawler, not the detector
+	RuleID       string       // a rules.Rule ID, or a built-in ID such as "private-key-committed"
+	Algorithm    string       // one of rules.Algorithms: RSA, ECDSA, ML-KEM, AES, SHA-1 ...; "" if unknown
+	Primitive    string       // one of rules.Primitives (CycloneDX names), or "" if unknown
+	KeySize      int          // 0 if unknown
+	ParameterSet string       // a named parameter set such as "ML-DSA-65", or ""
+	Mode         string       // CBC, GCM, ECB ...
+	AssetType    string       // CycloneDX assetType; "" means AssetAlgorithm
+	MaterialType string       // AssetMaterial only: MaterialPrivateKey or MaterialPublicKey
+	Cert         *Certificate // AssetCertificate only
+	File         string       // set by the crawler, not the detector
+	Line         int          // 1-based; 0 for binary files
+	Snippet      string       // trimmed, max 120 chars; never contains key material
+	Confidence   string       // high (AST/cert), medium (regex), low (string match)
+	Detector     string       // set by the crawler, not the detector
+}
+
+// Finding.AssetType values, named as in CycloneDX 1.6 cryptoProperties.assetType.
+const (
+	AssetAlgorithm   = "algorithm"
+	AssetCertificate = "certificate"
+	AssetMaterial    = "related-crypto-material"
+)
+
+// Finding.MaterialType values, named as in CycloneDX 1.6
+// relatedCryptoMaterialProperties.type.
+const (
+	MaterialPrivateKey = "private-key"
+	MaterialPublicKey  = "public-key"
+)
+
+// Certificate holds the X.509 fields a CBOM records for a certificate.
+type Certificate struct {
+	Subject   string
+	Issuer    string
+	NotBefore time.Time
+	NotAfter  time.Time
 }

@@ -96,6 +96,100 @@ Copies the rule's fields into a `Finding`. A size read from the code wins over t
 
 ---
 
+## `internal/detect/detect.go` — `Finding` fields for certificates and keys (added with the cert detector)
+- **`AssetType`** (`algorithm` | `certificate` | `related-crypto-material`) and **`MaterialType`** (`private-key` | `public-key`) use **CycloneDX 1.6's own names**, so the Phase 4 CBOM reporter copies them through, the same reasoning as `rules.Primitives`. Empty `AssetType` means `algorithm`, so the existing detectors didn't need to change.
+- *Options considered:* a separate `Secret bool`, or a new `Status`. **Chose CycloneDX's model:** "a private key is in the repo" is a related-crypto-material asset of type private-key, and the classifier (Phase 3) can rate that critical from the fields alone. A finding's risk status stays the classifier's decision, not the detector's.
+- **`Cert *Certificate`** (subject, issuer, validity dates): a pointer, so the ~95 % of findings that aren't certificates carry 8 bytes instead of a ~100-byte struct. These are the fields CycloneDX `certificateProperties` needs.
+- **`ParameterSet`** (`ML-DSA-65`): post-quantum schemes are sized by named parameter set, not key bits. Putting 65 into `KeySize` would be wrong, and the CBOM's `nistQuantumSecurityLevel` depends on the set (44 → 2, 65 → 3, 87 → 5). Maps to CycloneDX `parameterSetIdentifier`.
+- **`Algorithm` may now be `""`**: an encrypted PKCS#8 key or a `.p12` store doesn't reveal its algorithm, and the finding still has to be reported.
+- `Snippet` is documented as **never containing key material**. That's a contract every detector must keep, since reports are shared and uploaded.
+
+### `rules.Algorithms` gains `MD2`
+X.509 can name `MD2WithRSA`, and the closed set must cover every name any detector emits, not only rule-pack names. `TestAlgorithmNamesAreKnown` (cert package) enforces this for the cert detector's mappings.
+
+---
+
+## `internal/detect/cert/cert.go`
+
+No rules: a certificate or key states its own algorithm, so this detector maps parsed values directly. New dependency **`golang.org/x/crypto/ssh`** (project-owner decision, 2026-11-02). It's maintained by the Go team and parses OpenSSH key formats, which avoids a hand-written parser for exactly the kind of untrusted binary format where bugs hide. It brings in `golang.org/x/sys` indirectly.
+
+### Constants `Name = "cert"` and built-in rule IDs
+`cert-public-key`, `cert-signature`, `cert-signature-hash`, `private-key-committed`, `public-key`, `dh-parameters`. They're constants here, not in `rules.yaml`, because nothing about them is configurable. They follow the same ID format and never-rename rule, since suppressions and baselines reference them. *Open:* SARIF (Phase 4) needs a description for each; they'll need a registry the reporter can read.
+
+### `var derExts`, `var keyStoreExts`, `var pemBegin`
+Maps for O(1) extension checks. Extensions are compared **lower-cased** (`CA.CRT` counts). `.p12`/`.pfx` are reported without parsing: they're password-protected and normally hold private keys, so the honest finding is "a private-key store is committed" at medium confidence. `.jks` is left out because Java truststores (public CA certs only) are common, and flagging them as private keys would be a false critical.
+
+### `func (*Detector) Supports(path, binary) bool`
+- **Every text file**, because PEM blocks are embedded in source code (Go's own `crypto/x509/parser_test.go`, for example) and configuration as often as they sit in `.pem` files. `Supports` only sees the path, so content sniffing must happen in `Detect`.
+- *Cost:* the crawler now reads every text file in full instead of just the first 8 KB. Measured on Go's source tree (10,519 files): ~0.3 s warm, about the same as before. The regex detector will need full reads anyway.
+- Binary files only with a DER or PKCS#12 extension.
+
+### `func (*Detector) Detect(ctx, f) ([]Finding, error)`
+Routes by kind: key store → one finding; binary → `detectDER`; text → SSH public keys (only in `.pub`/`authorized_keys*`) plus PEM, but only after a `bytes.Contains(content, "-----BEGIN ")` pre-check. Most files fail that check, so they cost one linear scan and no allocation. Errors from each part are joined, so findings from one part survive an error in another.
+
+### `func detectPEM(ctx, content) ([]Finding, error)`
+- **Finds every `-----BEGIN ` marker and decodes from each one independently.** *Option rejected:* the usual `for block, rest := pem.Decode(rest)` loop, which stops at the first malformed block and silently hides every key after it. A bundle with one broken certificate must not hide a private key further down.
+- **Line numbers are counted incrementally** (`bytes.Count` from the previous marker), so a file is scanned once overall rather than once per marker (O(n), not O(n·markers)).
+- A decoded block must have the **same type as its marker**. Otherwise `pem.Decode` may have skipped ahead to a later block, and the finding would get the wrong line.
+- **The snippet is the marker text, never the source line.** A key embedded on one line (`"-----BEGIN…\nMIIE…"`) would otherwise put the private key itself into the report. `TestNoKeyMaterialInSnippets` guards this.
+- Parse failures of decoded blocks become warnings with the line number. Blocks that don't even decode (a `...` placeholder in a README) are skipped silently: there's nothing in them to inventory, and warning would be noise on every project with TLS setup docs.
+- `ctx` is checked once per block, so a CA bundle with hundreds of certificates stops promptly.
+
+### `func blockType(b) (string, bool)`
+Accepts `A–Z`, `0–9` and space, up to 64 bytes, before the closing `-----`. That's tighter than the PEM grammar, on purpose: lower-case text like "-----BEGIN something-----" in prose isn't a PEM marker (the README fixture checks this), and the length cap stops a stray marker from scanning megabytes.
+
+### `func parseBlock(typ, block) ([]Finding, error)`
+- **Any type containing `PRIVATE KEY`** (PKCS#1/8, SEC 1, OpenSSH, `ENCRYPTED`, even `PGP PRIVATE KEY BLOCK`) is reported **even when the block won't decode**. A committed private key is the most severe finding the tool has, so it should over-report here rather than under-report.
+- `CERTIFICATE` → `certFindings`. `CERTIFICATE REQUEST`, `PUBLIC KEY` and `RSA PUBLIC KEY` → a public-key finding. `DH PARAMETERS` → DH, so a server's committed `dhparam.pem` shows up as quantum-vulnerable key agreement. Other types are ignored.
+- *Known limitation:* Go's x509 parser is strict, so certificates it rejects (negative serials, malformed policies; 13 such test certs in Go's own tree) give a warning instead of an inventory entry. A more lenient parser would mean writing our own ASN.1 handling, which isn't worth it for deliberately broken certificates.
+
+### `func parsePrivateKey(typ, block) Finding`
+- PKCS#8 → `x509.ParsePKCS8PrivateKey` (it knows ML-DSA in Go 1.27). PKCS#1, SEC 1 and OpenSSH → `ssh.ParseRawPrivateKey`, which handles all of them, including legacy OpenSSL encryption.
+- **Encrypted OpenSSH keys still reveal their algorithm:** that format stores the public key unencrypted, and `ssh.PassphraseMissingError.PublicKey` exposes it. The `id_ed25519_enc` fixture is reported as EdDSA at high confidence.
+- **It never fails.** If parsing doesn't work, the marker prefix gives the algorithm (`RSA ` → RSA, `DSA ` → DSA, `EC ` → ECC) at medium confidence; with no prefix, the algorithm is unknown.
+
+### `func privateKeyFrom(pub) Finding`
+Reports a parsed private key through its public half (algorithm, size, parameter set). **EC private keys are reported as `ECC` with no primitive**, whatever format they're in. Go parses all of them as `*ecdsa.PrivateKey`, but the key itself doesn't say whether it signs or does key agreement. Saying `ECDSA` would claim a use we can't know, and the classifier rates both the same anyway.
+
+### `func privateKey(...)` / `func publicKey(pub)`
+Small constructors, so every key finding fills `AssetType`/`MaterialType` the same way. The `publicKey(nil)` pattern in the SSH path relies on `keyInfo(nil)` returning a zero value.
+
+### `func certFindings(c) []Finding`
+- **Up to three findings per certificate:** the subject key (the certificate asset, carrying `Cert`), the issuer's signature algorithm, and the hash in that signature. *Option rejected:* one finding per certificate. The `chain.pem` fixture shows why not: an **ML-DSA certificate signed by an RSA CA** looks quantum-safe if you only read its key, but its trust still rests on RSA. Likewise RSA-2048 signed with SHA-1 has two separate problems.
+- Ed25519 and ML-DSA signatures have no separate hash, so there's no third finding for them.
+- Expiry isn't judged here. The dates go into `Cert`, and reporters decide what "expired" means.
+
+### `func detectDER(content) ([]Finding, error)`
+Tries the formats in order: certificates (`ParseCertificates` handles concatenated DER), PKCS#8, PKCS#1, SEC 1 private keys, then a PKIX public key. The first success wins. Anything else gives a "not a DER certificate or key" warning. Findings get **line 0** (binary files have no lines) and a descriptive snippet such as `DER certificate`.
+
+### `func isSSHPublicKeyFile(path) bool` / `func detectSSHPublicKeys(content) []Finding`
+- Only `*.pub` and `authorized_keys*` files. `ssh-rsa AAAA…` lines are common in documentation, and in `known_hosts` they're other people's host keys, not this project's crypto.
+- Parsed **line by line** with `ssh.ParseAuthorizedKey`, which gives line numbers (its own multi-line mode doesn't). Lines that fail are skipped without a warning, because `.pub` files often hold PEM keys instead, which `detectPEM` reports.
+- SSH certificates are unwrapped to the key they certify. The snippet is the key type (`ssh-ed25519`), never the base64 body.
+
+### `func sshTypeInfo(t) keyDetails`
+Fallback for SSH key types with no Go `crypto.PublicKey` form, such as FIDO `sk-ssh-ed25519@openssh.com`. It goes by substring in the type name. It only runs after the typed path has failed, so a false match can only fill an otherwise unknown algorithm.
+
+### `type keyDetails` / `func keyInfo(pub) keyDetails`
+- A type switch over Go's public-key types. Sizes: RSA/DSA modulus bits, ECDSA curve bits, Ed25519/X25519 = 255, the NIST curves for ECDH by curve identity. ML-DSA reports its **parameter set**, not bits.
+- **RSA has no primitive**: the key alone doesn't say whether it signs or encrypts.
+- Unknown key types give zero `keyDetails` (the algorithm is unknown) rather than an error, so the certificate is still inventoried.
+
+### `func publicOf(key) crypto.PublicKey`
+Uses the `Public()` method most private keys share, with `*dsa.PrivateKey` (which has none) as a special case. Returns nil for unknown types, which `keyInfo` handles.
+
+### `type sigDetails` / `func sigInfo(a) sigDetails`
+An explicit `switch` over every `x509.SignatureAlgorithm`, splitting each into signer, hash and parameter set. *Option rejected:* parsing `a.String()` ("SHA256-RSA"), which would break silently if Go changed its spelling. With a switch, a new Go constant shows up as unknown, and the test that loops over every constant would catch a name outside `rules.Algorithms`.
+
+### Tests and fixtures: `testdata/fixtures/cert/`
+- **Real certificates and keys**, generated by `gen.sh` (`go run gen.go` for the X.509/PKCS formats, plus `ssh-keygen` and `openssl` for OpenSSH, encrypted PKCS#8, DH parameters and SHA-1 signatures, which Go refuses to create). Both generators are committed so the fixtures can be rebuilt. Dates are fixed (2026-01-01 to 2036-01-01) so regenerating doesn't change the goldens for no reason.
+- **All keys are throwaway test keys.** Secret scanners such as GitHub's will flag them, which is expected for this directory.
+- Goldens go in `golden/<name>.golden`, a subfolder because the fixtures have no shared extension to glob. The format is the goast one plus `ParameterSet`, asset/material type and certificate fields.
+- Coverage: RSA/ECDSA/Ed25519/ML-DSA certificates, a mixed ML-DSA-leaf-with-RSA-CA chain, SHA-1-signed, DER, PKCS#1/PKCS#8/ML-DSA/encrypted PKCS#8/OpenSSH (plain and encrypted) private keys, keys embedded in source (raw and escaped), CSR, PKIX public key, DH parameters, `authorized_keys` (RSA, ECDSA, FIDO, a garbage line), a `.p12` store, plus negatives: a README placeholder, a malformed cert, a junk `.der`.
+- `TestNoKeyMaterialInSnippets` and `TestAlgorithmNamesAreKnown` guard the two contracts above.
+
+---
+
 ## `cmd/shorstop/main.go` — `func detectors() ([]detect.Detector, error)`
 Builds every detector from `rules.Builtin()`, in one place, so `run` stays about flags and output. A broken embedded pack exits with code 2 and `loading rules: …`. `TestBuiltinLoads` makes that unreachable for shipped builds, but the path exists for `--rules` later.
 
@@ -460,7 +554,7 @@ Walks the document's top mapping to the `rules` key, then reads `Line` from each
 - **Minimum is 1.27, the latest release**, by project-owner decision (2026-10-24). On that date go.dev listed 1.27.3 and 1.26.10 as supported.
 - **Tradeoff:** users on 1.26 can't `go install` without Go downloading 1.27 for them. Prebuilt binaries aren't affected. In return, any 1.27 feature can be used.
 - **`go 1.27`** is the minimum language/API version required of users. **`toolchain go1.27.3`** only says which Go this repo's builds use: an older local Go downloads it automatically. Bump it with each Go patch release.
-- Dependencies: **`go.uber.org/goleak`** (tests only) and **`go.yaml.in/yaml/v3`** (rule pack; see `internal/rules`).
+- Dependencies: **`go.uber.org/goleak`** (tests only), **`go.yaml.in/yaml/v3`** (rule pack; see `internal/rules`), **`golang.org/x/crypto`** (OpenSSH key parsing; see `internal/detect/cert`).
 
 ### `Makefile`
 - `CGO_ENABLED=0`: static binary for `FROM scratch` images, easy cross-compiling.
