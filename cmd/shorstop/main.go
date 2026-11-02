@@ -13,8 +13,10 @@ import (
 	"os/signal"
 	"runtime"
 	"runtime/debug"
+	"strings"
 	"syscall"
 
+	"github.com/shorstop/shorstop/internal/classify"
 	"github.com/shorstop/shorstop/internal/crawler"
 	"github.com/shorstop/shorstop/internal/detect"
 	"github.com/shorstop/shorstop/internal/detect/cert"
@@ -174,8 +176,33 @@ func detectors() ([]detect.Detector, error) {
 
 func summary(res *crawler.Result) string {
 	s := res.Stats
-	return fmt.Sprintf("Scanned %d files · %d findings (skipped: %d ignored, %d too large, %d binary, %d not regular, %d failed) · %d warnings",
-		s.Scanned, len(res.Findings), s.Ignored, s.TooLarge, s.Binary, s.NotRegular, s.Failed, len(res.Errors))
+	return fmt.Sprintf("Scanned %d files · %d findings%s (skipped: %d ignored, %d too large, %d binary, %d not regular, %d failed) · %d warnings",
+		s.Scanned, len(res.Findings), ratings(res.Findings), s.Ignored, s.TooLarge, s.Binary, s.NotRegular, s.Failed, len(res.Errors))
+}
+
+// ratings summarises the findings' classifications, as the plan's terminal
+// summary does: " · 12 critical · 48 high · 3 quantum-safe". Severities with
+// no findings are left out.
+func ratings(fs []detect.Finding) string {
+	bySev := make(map[classify.Severity]int)
+	safe := 0
+	for _, f := range fs {
+		r := classify.Classify(f)
+		bySev[r.Severity]++
+		if r.Status == classify.QuantumSafe {
+			safe++
+		}
+	}
+	var b strings.Builder
+	for _, sev := range []classify.Severity{classify.Critical, classify.High, classify.Medium, classify.Low} {
+		if n := bySev[sev]; n > 0 {
+			fmt.Fprintf(&b, " · %d %s", n, sev)
+		}
+	}
+	if safe > 0 {
+		fmt.Fprintf(&b, " · %d quantum-safe", safe)
+	}
+	return b.String()
 }
 
 func resolveVersion() string {

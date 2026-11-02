@@ -458,6 +458,48 @@ Shared helpers: lines without `\r`, and byte offset → 1-based line.
 
 ---
 
+## `internal/classify/classify.go` (Phase 3)
+
+Rates a finding: a **status** (`QUANTUM_VULNERABLE`, `WEAKENED`, `BROKEN`, `INSECURE_MODE`, `ACCEPTABLE`, `QUANTUM_SAFE`, `UNKNOWN`), a **severity**, a one-sentence **reason**, a **recommendation**, and the **NIST quantum security level** for the CBOM.
+
+### `func Classify(f detect.Finding) Result`
+- **A pure function of one finding**, as the plan requires ("Done when: classify is a pure function with table-driven tests for every row"). It reads no files and no other findings, so it's deterministic and every reporter (terminal, CBOM, SARIF, markdown) gets the same answer by calling it. *Option rejected:* storing the rating in `Finding` at scan time. That would freeze ratings into baselines and caches, so a corrected rating would never reach old scans. Computing it on demand is cheap: a switch statement per finding.
+- **Precedence is the order of the checks:**
+  1. A committed private key is **critical whatever its algorithm**, even ML-DSA or unknown: the problem is the exposed secret, not the maths. Its status still comes from the algorithm, so the CBOM can say "quantum-vulnerable RSA key, exposed".
+  2. Protocol findings are rated by version.
+  3. Everything else is rated by algorithm.
+  4. **Dependency findings are capped at low** (`PURL` set): the plan's "low (dependency-only hints)". The cap only lowers; a quantum-safe library stays `info`. The reason gets a `Dependency:` prefix, so a reader knows it's a hint.
+- **Gaps the plan's matrix left open, filled here and listed for review:**
+  - **Short keys are BROKEN, not only quantum-vulnerable:** RSA, DSA and DH below 2048 bits, and elliptic curves below 224 bits (NIST SP 800-131A). RSA-1024 and DH-1024 (Logjam) can be attacked classically today; calling them only "quantum-vulnerable" would understate the risk.
+  - **HMAC-SHA-1 / HMAC-MD5** (primitive `mac` or `kdf`) are **ACCEPTABLE at low severity**, not BROKEN. HMAC and key derivation rely on preimage resistance, which those hashes still have; it's collisions that are broken. This is the plan's correction #2 (don't overstate). The detectors record the primitive precisely for this, for example a cipher suite's SHA-1 as `mac`, and `ssh-rsa`'s SHA-1 as `hash`, because it's a signature hash.
+  - **TLS/SSL versions:** SSLv2/SSLv3 are BROKEN and **critical** (DROWN, POODLE; prohibited by RFC 6176/7568). TLS 1.0/1.1 are BROKEN but **high**, a deliberate step down from the plan's "BROKEN → critical": RFC 8996 deprecates them, but the known attacks are mitigated in current stacks, so they're not an emergency the way SSLv3 is. TLS 1.2/1.3 are ACCEPTABLE; their key exchange is rated by the cipher and group findings.
+  - **Quantum-vulnerable of unknown use** (an import of `crypto/rsa`, a certificate's RSA key) is rated **high**, like key exchange, not medium like signatures. Harvest-now-decrypt-later applies to anything that might encrypt or transport keys, and TLS 1.2 RSA certificates do exactly that. Only a finding known to be a signature gets medium.
+  - **AES of unknown key size** is UNKNOWN/low with a "make sure it's 256-bit" recommendation. Rating it WEAKENED would accuse every `crypto/aes` import, and rating it ACCEPTABLE would hide AES-128. **AES-192** is ACCEPTABLE (≈96-bit strength under Grover). **ChaCha20** is ACCEPTABLE (256-bit keys).
+  - **sntrup761** is QUANTUM_SAFE, with a reason that says it's not NIST-standardised. **MD2/MD4** are BROKEN like MD5. **SHA-224** is ACCEPTABLE.
+  - **Unknown algorithm** (crypto toolkits, undecodable material) is UNKNOWN/low with "check which algorithms it is used with".
+- **Severity: `info`** is added below the plan's four levels for ACCEPTABLE and QUANTUM_SAFE, so every finding has a severity, and `--fail-on low` (Phase 5) won't fail on AES-256.
+- **Known limitation, hybrids:** `X25519MLKEM768` reports X25519 and ML-KEM separately, and the X25519 half is rated high. In a hybrid the X25519 half isn't a risk, but on most real lines (`X25519MLKEM768:X25519`, `sntrup761x25519-sha512,curve25519-sha256`) plain X25519 is also offered as a fallback, and the crawler's merge folds the two into one finding. Telling them apart needs a "hybrid" flag set by the detector. *Open:* add it when the CBOM reporter needs hybrid components (CycloneDX models them as a combiner).
+
+### `type Status` / `type Severity` / `func (Severity) Rank() int`
+Typed strings, so JSON/SARIF output can use them as they are, and a typo is a compile error. `Rank` gives the order (critical 5 … info 1, 0 for anything unknown) for sorting and for the Phase 5 `--fail-on` threshold.
+
+### `type Result`
+`NISTLevel` is CycloneDX's `nistQuantumSecurityLevel`. It's filled **only where NIST defines a category by reference**: key search on AES-128/192/256 (categories 1/3/5), collisions on SHA-256/384 (2/4), and the ML-KEM (512/768/1024 → 1/3/5) and ML-DSA (44/65/87 → 2/3/5) parameter sets. Everything else is 0, rather than an invented number (SHA-512, SHA-3, ChaCha20, SLH-DSA without a parameter set).
+
+### Constants `recKEM`, `recSignature`, `recPublicKey`, `recHash`, `recCipher`, `recTLS`, `recKey`
+Recommendation texts shared by several rules, so the same advice is worded the same way everywhere. They name the FIPS standards (203/204/205) and the hybrid TLS group, as the plan's matrix does.
+
+### `func algorithm(f)` / `func quantumVulnerable(f)` / `func shortKey(f, minBits)` / `func protocol(v)` / `func pqcLevel(param)` / `var brokenCipher`
+One switch over `rules.Algorithms`, where each case states its own reason. `quantumVulnerable` splits by primitive: key exchange, signature, or unknown (the conservative default). `shortKey` reuses `quantumVulnerable`'s recommendation, since the fix for RSA-1024 is the same migration. `brokenCipher` holds one specific reason per broken cipher (DES brute force, Sweet32, RC4 biases), not a generic "broken".
+
+### Tests: `classify_test.go`
+- **`TestClassify`:** one case per row of the plan's matrix, then one per gap above. **`TestPrivateKeys`** (critical whatever the algorithm; public keys aren't critical), **`TestProtocols`**, **`TestDependenciesAreLow`**.
+- **`TestEveryAlgorithmIsRated`** loops over `rules.Algorithms`, so adding an algorithm without a rating fails the build. That is the check the closed algorithm set was designed for (see `rules.Algorithms`).
+- **`TestResultsAreComplete`** sweeps algorithms × primitives × sizes × ECB: every rating has a reason, every rating of medium or above has a recommendation, and every severity has a rank.
+- **Checked on Go's source tree:** 125 critical findings, all of them really broken today (SHA-1/MD5/DES/RC4 imports, 3DES, SHA-1- and MD5-signed test certificates, RSA keys under 2048 bits generated in tests, 1024-bit DSA certificates, committed test keys). High findings are mostly the RSA keys of 413 test certificates, plus X25519 and ECDH use.
+
+---
+
 ## `cmd/shorstop/main.go` — `func detectors() ([]detect.Detector, error)`
 Builds every detector from `rules.Builtin()`, in one place, so `run` stays about flags and output. A broken embedded pack exits with code 2 and `loading rules: …`. `TestBuiltinLoads` makes that unreachable for shipped builds, but the path exists for `--rules` later. Order: goast, cert, config, deps, regex. **Order matters for duplicates:** when `detect.Dedupe` finds two identical findings, the earlier detector's is kept. The parsing detectors come before regex, so the more precise rule ID survives.
 
@@ -808,6 +850,9 @@ Returns subexpression *i*'s text from a `FindAllSubmatchIndex` location, if it t
 
 ### `func summary(res) string`
 - One line with every `Stats` counter. It's a stand-in until the terminal reporter (Phase 4) adds colour and severity grouping. It shows **every skip reason**, so a user can see at a glance why the count is lower than expected.
+
+### `func ratings(fs) string` (added with the classifier)
+Adds the plan's summary shape after the finding count, `· 12 critical · 48 high · 3 quantum-safe`, by calling `classify.Classify` on each finding. Severities with no findings are left out, and `info` is never listed by count (it's the "nothing to do" bucket). Quantum-safe findings are counted separately, because the plan wants progress shown, not only problems. It's a stand-in until the Phase 4 terminal reporter; the existing CLI test still matches because the prefix is unchanged.
 
 ### `func resolveVersion() string`
 - Checks, in order:
