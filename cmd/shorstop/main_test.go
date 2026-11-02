@@ -3,10 +3,13 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/shorstop/shorstop/pkg/cbom"
 )
 
 func TestRun(t *testing.T) {
@@ -80,6 +83,37 @@ func TestRunSummary(t *testing.T) {
 	}
 	if !strings.HasPrefix(stdout.String(), "Scanned 1 files · 0 findings") {
 		t.Errorf("summary = %q", stdout.String())
+	}
+}
+
+func TestRunFormatCBOM(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "app.py"), []byte("import hashlib\nh = hashlib.md5(b)\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, format := range []string{"json", "cbom"} {
+		var stdout, stderr bytes.Buffer
+		if code := run(context.Background(), []string{"--dir", dir, "--format", format}, &stdout, &stderr); code != exitOK {
+			t.Fatalf("%s: exit code = %d, stderr: %q", format, code, stderr.String())
+		}
+		var bom cbom.BOM
+		if err := json.Unmarshal(stdout.Bytes(), &bom); err != nil {
+			t.Fatalf("%s: stdout is not JSON (%v): %q", format, err, stdout.String())
+		}
+		if bom.BOMFormat != "CycloneDX" || bom.Metadata.Component.Name != filepath.Base(dir) || len(bom.Components) != 1 {
+			t.Errorf("%s: unexpected CBOM: %+v", format, bom)
+		}
+		if !strings.HasPrefix(stderr.String(), "Scanned 1 files · 1 findings · 1 critical") {
+			t.Errorf("%s: the summary should go to stderr, got %q", format, stderr.String())
+		}
+	}
+}
+
+func TestRunUnknownFormat(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"--dir", t.TempDir(), "--format", "xml"}, &stdout, &stderr)
+	if code != exitError || !strings.Contains(stderr.String(), `unknown --format "xml"`) || stdout.Len() != 0 {
+		t.Errorf("code %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
 	}
 }
 

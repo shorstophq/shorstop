@@ -63,6 +63,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	workers := fs.Int("workers", runtime.GOMAXPROCS(0), "number of files scanned in parallel")
 	output := fs.String("output", "", "write output to this file instead of stdout")
 	listFiles := fs.Bool("list-files", false, "print the files that would be scanned, one per line")
+	format := fs.String("format", "table", "output format: "+strings.Join(formatNames, ", "))
 	maxFileSize := byteSize(defaultMaxFileSize)
 	fs.Var(&maxFileSize, "max-file-size", "skip files larger than this (e.g. 512KB, 2MB)")
 	var excludes stringList
@@ -82,6 +83,12 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	if fs.NArg() > 0 {
 		fmt.Fprintf(stderr, "shorstop: unexpected argument %q\n", fs.Arg(0))
 		fs.Usage()
+		return exitError
+	}
+	// Checked before scanning, so a typo doesn't cost a whole scan.
+	render, ok := formats[*format]
+	if !ok {
+		fmt.Fprintf(stderr, "shorstop: unknown --format %q (want one of: %s)\n", *format, strings.Join(formatNames, ", "))
 		return exitError
 	}
 
@@ -119,14 +126,14 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 			}
 			return nil
 		}
-		_, err := fmt.Fprintln(w, summary(res))
-		return err
+		return render(w, res, *dir)
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "shorstop: writing output: %v\n", err)
 		return exitError
 	}
-	if *listFiles {
+	// Machine-readable output keeps stdout clean; the summary goes to stderr.
+	if *listFiles || *format != "table" {
 		fmt.Fprintln(stderr, summary(res))
 	}
 	return exitOK

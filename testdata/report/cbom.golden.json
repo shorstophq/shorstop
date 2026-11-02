@@ -1,0 +1,561 @@
+{
+  "$schema": "http://cyclonedx.org/schema/bom-1.6.schema.json",
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.6",
+  "serialNumber": "urn:uuid:00000000-0000-4000-8000-000000000000",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2026-11-02T12:00:00Z",
+    "tools": {
+      "components": [
+        {
+          "type": "application",
+          "name": "shorstop",
+          "version": "v0.0.0-test"
+        }
+      ]
+    },
+    "component": {
+      "bom-ref": "project",
+      "type": "application",
+      "name": "fixture"
+    }
+  },
+  "components": [
+    {
+      "bom-ref": "crypto:algorithm:AES-128-ECB:block-cipher",
+      "type": "cryptographic-asset",
+      "name": "AES-128-ECB",
+      "cryptoProperties": {
+        "assetType": "algorithm",
+        "algorithmProperties": {
+          "primitive": "block-cipher",
+          "parameterSetIdentifier": "128",
+          "mode": "ecb",
+          "classicalSecurityLevel": 128,
+          "nistQuantumSecurityLevel": 0
+        }
+      },
+      "evidence": {
+        "occurrences": [
+          {
+            "location": "b.js",
+            "line": 2,
+            "additionalContext": "generic-aes-cipher-string"
+          }
+        ]
+      },
+      "properties": [
+        {
+          "name": "shorstop:status",
+          "value": "INSECURE_MODE"
+        },
+        {
+          "name": "shorstop:severity",
+          "value": "high"
+        },
+        {
+          "name": "shorstop:reason",
+          "value": "ECB mode encrypts equal blocks to equal ciphertext, leaking patterns in the data."
+        },
+        {
+          "name": "shorstop:recommendation",
+          "value": "Use AES-GCM (or another authenticated mode)."
+        },
+        {
+          "name": "shorstop:confidence",
+          "value": "medium"
+        },
+        {
+          "name": "shorstop:rules",
+          "value": "generic-aes-cipher-string"
+        }
+      ]
+    },
+    {
+      "bom-ref": "crypto:algorithm:ML-KEM-768:kem",
+      "type": "cryptographic-asset",
+      "name": "ML-KEM-768",
+      "cryptoProperties": {
+        "assetType": "algorithm",
+        "algorithmProperties": {
+          "primitive": "kem",
+          "parameterSetIdentifier": "ML-KEM-768",
+          "nistQuantumSecurityLevel": 3
+        }
+      },
+      "evidence": {
+        "occurrences": [
+          {
+            "location": "nginx.conf",
+            "line": 8,
+            "additionalContext": "tls-group"
+          }
+        ]
+      },
+      "properties": [
+        {
+          "name": "shorstop:status",
+          "value": "QUANTUM_SAFE"
+        },
+        {
+          "name": "shorstop:severity",
+          "value": "info"
+        },
+        {
+          "name": "shorstop:reason",
+          "value": "ML-KEM is NIST-standardised post-quantum cryptography (FIPS 203/204/205)."
+        },
+        {
+          "name": "shorstop:confidence",
+          "value": "high"
+        },
+        {
+          "name": "shorstop:rules",
+          "value": "tls-group"
+        }
+      ]
+    },
+    {
+      "bom-ref": "crypto:algorithm:RSA-2048:unknown",
+      "type": "cryptographic-asset",
+      "name": "RSA-2048",
+      "cryptoProperties": {
+        "assetType": "algorithm",
+        "algorithmProperties": {
+          "primitive": "unknown",
+          "parameterSetIdentifier": "2048",
+          "classicalSecurityLevel": 112,
+          "nistQuantumSecurityLevel": 0
+        }
+      },
+      "evidence": {
+        "occurrences": [
+          {
+            "location": "README.md",
+            "line": 3,
+            "additionalContext": "generic-rsa-bits: rsa:2048"
+          },
+          {
+            "location": "a.go",
+            "line": 10,
+            "additionalContext": "go-rsa-generate-key: rsa.GenerateKey(r, 2048)"
+          },
+          {
+            "location": "ca.pem",
+            "line": 1,
+            "additionalContext": "cert-public-key"
+          }
+        ]
+      },
+      "properties": [
+        {
+          "name": "shorstop:status",
+          "value": "QUANTUM_VULNERABLE"
+        },
+        {
+          "name": "shorstop:severity",
+          "value": "high"
+        },
+        {
+          "name": "shorstop:reason",
+          "value": "RSA is broken by Shor's algorithm; if it protects key exchange or encryption, data encrypted today can be recorded and decrypted later."
+        },
+        {
+          "name": "shorstop:recommendation",
+          "value": "Migrate to ML-KEM (FIPS 203) for key exchange and encryption, and ML-DSA (FIPS 204) for signatures; for TLS, enable X25519MLKEM768."
+        },
+        {
+          "name": "shorstop:confidence",
+          "value": "high"
+        },
+        {
+          "name": "shorstop:rules",
+          "value": "cert-public-key,generic-rsa-bits,go-rsa-generate-key"
+        }
+      ]
+    },
+    {
+      "bom-ref": "crypto:algorithm:RSA:signature",
+      "type": "cryptographic-asset",
+      "name": "RSA",
+      "cryptoProperties": {
+        "assetType": "algorithm",
+        "algorithmProperties": {
+          "primitive": "signature",
+          "nistQuantumSecurityLevel": 0
+        }
+      },
+      "evidence": {
+        "occurrences": [
+          {
+            "location": "ca.pem",
+            "line": 1,
+            "additionalContext": "cert-signature"
+          }
+        ]
+      },
+      "properties": [
+        {
+          "name": "shorstop:status",
+          "value": "QUANTUM_VULNERABLE"
+        },
+        {
+          "name": "shorstop:severity",
+          "value": "medium"
+        },
+        {
+          "name": "shorstop:reason",
+          "value": "RSA signatures can be forged with Shor's algorithm on a large quantum computer."
+        },
+        {
+          "name": "shorstop:recommendation",
+          "value": "Plan a migration of signatures to ML-DSA (FIPS 204) or SLH-DSA (FIPS 205)."
+        },
+        {
+          "name": "shorstop:confidence",
+          "value": "high"
+        },
+        {
+          "name": "shorstop:rules",
+          "value": "cert-signature"
+        }
+      ]
+    },
+    {
+      "bom-ref": "crypto:algorithm:RSA:unknown",
+      "type": "cryptographic-asset",
+      "name": "RSA",
+      "cryptoProperties": {
+        "assetType": "algorithm",
+        "algorithmProperties": {
+          "primitive": "unknown",
+          "nistQuantumSecurityLevel": 0
+        }
+      },
+      "properties": [
+        {
+          "name": "shorstop:status",
+          "value": "QUANTUM_VULNERABLE"
+        },
+        {
+          "name": "shorstop:severity",
+          "value": "high"
+        },
+        {
+          "name": "shorstop:reason",
+          "value": "RSA is broken by Shor's algorithm; if it protects key exchange or encryption, data encrypted today can be recorded and decrypted later."
+        },
+        {
+          "name": "shorstop:recommendation",
+          "value": "Migrate to ML-KEM (FIPS 203) for key exchange and encryption, and ML-DSA (FIPS 204) for signatures; for TLS, enable X25519MLKEM768."
+        }
+      ]
+    },
+    {
+      "bom-ref": "crypto:algorithm:SHA-1:hash",
+      "type": "cryptographic-asset",
+      "name": "SHA-1",
+      "cryptoProperties": {
+        "assetType": "algorithm",
+        "algorithmProperties": {
+          "primitive": "hash",
+          "nistQuantumSecurityLevel": 0
+        }
+      },
+      "evidence": {
+        "occurrences": [
+          {
+            "location": "ca.pem",
+            "line": 1,
+            "additionalContext": "cert-signature-hash"
+          }
+        ]
+      },
+      "properties": [
+        {
+          "name": "shorstop:status",
+          "value": "BROKEN"
+        },
+        {
+          "name": "shorstop:severity",
+          "value": "critical"
+        },
+        {
+          "name": "shorstop:reason",
+          "value": "SHA-1 has practical collision attacks: signatures and integrity checks that rely on it can be forged."
+        },
+        {
+          "name": "shorstop:recommendation",
+          "value": "Use SHA-256 or stronger (SHA-384, SHA-3)."
+        },
+        {
+          "name": "shorstop:confidence",
+          "value": "high"
+        },
+        {
+          "name": "shorstop:rules",
+          "value": "cert-signature-hash"
+        }
+      ]
+    },
+    {
+      "bom-ref": "crypto:certificate:90a8e1bf2e2b5c2f",
+      "type": "cryptographic-asset",
+      "name": "CN=Old CA",
+      "cryptoProperties": {
+        "assetType": "certificate",
+        "certificateProperties": {
+          "subjectName": "CN=Old CA",
+          "issuerName": "CN=Old CA",
+          "notValidBefore": "2020-01-01T00:00:00Z",
+          "notValidAfter": "2025-01-01T00:00:00Z",
+          "signatureAlgorithmRef": "crypto:algorithm:RSA:signature",
+          "subjectPublicKeyRef": "crypto:algorithm:RSA-2048:unknown",
+          "certificateFormat": "X.509"
+        }
+      },
+      "evidence": {
+        "occurrences": [
+          {
+            "location": "ca.pem",
+            "line": 1,
+            "additionalContext": "cert-public-key"
+          }
+        ]
+      },
+      "properties": [
+        {
+          "name": "shorstop:status",
+          "value": "BROKEN"
+        },
+        {
+          "name": "shorstop:severity",
+          "value": "critical"
+        },
+        {
+          "name": "shorstop:reason",
+          "value": "SHA-1 has practical collision attacks: signatures and integrity checks that rely on it can be forged."
+        },
+        {
+          "name": "shorstop:recommendation",
+          "value": "Use SHA-256 or stronger (SHA-384, SHA-3)."
+        },
+        {
+          "name": "shorstop:confidence",
+          "value": "high"
+        },
+        {
+          "name": "shorstop:rules",
+          "value": "cert-public-key"
+        },
+        {
+          "name": "shorstop:expired",
+          "value": "true"
+        }
+      ]
+    },
+    {
+      "bom-ref": "crypto:private-key:bda00edc18c07437",
+      "type": "cryptographic-asset",
+      "name": "RSA-2048 private key",
+      "cryptoProperties": {
+        "assetType": "related-crypto-material",
+        "relatedCryptoMaterialProperties": {
+          "type": "private-key",
+          "state": "compromised",
+          "algorithmRef": "crypto:algorithm:RSA-2048:unknown",
+          "size": 2048
+        }
+      },
+      "evidence": {
+        "occurrences": [
+          {
+            "location": "k.key",
+            "line": 1,
+            "additionalContext": "private-key-committed: -----BEGIN RSA PRIVATE KEY-----"
+          }
+        ]
+      },
+      "properties": [
+        {
+          "name": "shorstop:status",
+          "value": "QUANTUM_VULNERABLE"
+        },
+        {
+          "name": "shorstop:severity",
+          "value": "critical"
+        },
+        {
+          "name": "shorstop:reason",
+          "value": "A private key is committed to the repository: anyone who can read the repository has the key."
+        },
+        {
+          "name": "shorstop:recommendation",
+          "value": "Treat the key as compromised: revoke and rotate it, remove it from the repository history, and keep keys in a secret manager."
+        },
+        {
+          "name": "shorstop:confidence",
+          "value": "high"
+        },
+        {
+          "name": "shorstop:rules",
+          "value": "private-key-committed"
+        }
+      ]
+    },
+    {
+      "bom-ref": "crypto:protocol:tls:TLSv1.0",
+      "type": "cryptographic-asset",
+      "name": "TLSv1.0",
+      "cryptoProperties": {
+        "assetType": "protocol",
+        "protocolProperties": {
+          "type": "tls",
+          "version": "1.0"
+        }
+      },
+      "evidence": {
+        "occurrences": [
+          {
+            "location": "nginx.conf",
+            "line": 5,
+            "additionalContext": "tls-protocol-version"
+          }
+        ]
+      },
+      "properties": [
+        {
+          "name": "shorstop:status",
+          "value": "BROKEN"
+        },
+        {
+          "name": "shorstop:severity",
+          "value": "high"
+        },
+        {
+          "name": "shorstop:reason",
+          "value": "TLSv1.0 is deprecated by RFC 8996 and rejected by modern clients and PCI DSS."
+        },
+        {
+          "name": "shorstop:recommendation",
+          "value": "Allow only TLS 1.2 and 1.3."
+        },
+        {
+          "name": "shorstop:confidence",
+          "value": "high"
+        },
+        {
+          "name": "shorstop:rules",
+          "value": "tls-protocol-version"
+        }
+      ]
+    },
+    {
+      "bom-ref": "pkg:npm/node-forge",
+      "type": "library",
+      "name": "node-forge",
+      "purl": "pkg:npm/node-forge",
+      "evidence": {
+        "occurrences": [
+          {
+            "location": "package.json",
+            "line": 5,
+            "additionalContext": "dep-npm-node-forge"
+          }
+        ]
+      },
+      "properties": [
+        {
+          "name": "shorstop:status",
+          "value": "UNKNOWN"
+        },
+        {
+          "name": "shorstop:severity",
+          "value": "low"
+        },
+        {
+          "name": "shorstop:reason",
+          "value": "Dependency: A cryptographic library or object whose algorithms aren't known."
+        },
+        {
+          "name": "shorstop:recommendation",
+          "value": "Check which algorithms it is used with."
+        },
+        {
+          "name": "shorstop:confidence",
+          "value": "low"
+        },
+        {
+          "name": "shorstop:rules",
+          "value": "dep-npm-node-forge"
+        }
+      ]
+    },
+    {
+      "bom-ref": "pkg:npm/node-rsa",
+      "type": "library",
+      "name": "node-rsa",
+      "version": "1.1.1",
+      "purl": "pkg:npm/node-rsa@1.1.1",
+      "evidence": {
+        "occurrences": [
+          {
+            "location": "package-lock.json",
+            "line": 9,
+            "additionalContext": "dep-npm-node-rsa"
+          },
+          {
+            "location": "package.json",
+            "line": 4,
+            "additionalContext": "dep-npm-node-rsa"
+          }
+        ]
+      },
+      "properties": [
+        {
+          "name": "shorstop:status",
+          "value": "QUANTUM_VULNERABLE"
+        },
+        {
+          "name": "shorstop:severity",
+          "value": "low"
+        },
+        {
+          "name": "shorstop:reason",
+          "value": "Dependency: RSA is broken by Shor's algorithm; if it protects key exchange or encryption, data encrypted today can be recorded and decrypted later."
+        },
+        {
+          "name": "shorstop:recommendation",
+          "value": "Migrate to ML-KEM (FIPS 203) for key exchange and encryption, and ML-DSA (FIPS 204) for signatures; for TLS, enable X25519MLKEM768."
+        },
+        {
+          "name": "shorstop:confidence",
+          "value": "low"
+        },
+        {
+          "name": "shorstop:rules",
+          "value": "dep-npm-node-rsa"
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "ref": "project",
+      "dependsOn": [
+        "pkg:npm/node-forge",
+        "pkg:npm/node-rsa"
+      ]
+    },
+    {
+      "ref": "pkg:npm/node-forge"
+    },
+    {
+      "ref": "pkg:npm/node-rsa",
+      "provides": [
+        "crypto:algorithm:RSA:unknown"
+      ]
+    }
+  ]
+}

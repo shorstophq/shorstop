@@ -500,6 +500,76 @@ One switch over `rules.Algorithms`, where each case states its own reason. `quan
 
 ---
 
+## `pkg/cbom/types.go` (Phase 4)
+
+The CycloneDX 1.6 types for a CBOM. **Public** (`pkg/`, not `internal/`), as the plan says, so the backend can decode exactly what the CLI writes.
+
+- **Written from the official schema, not the plan's sketch.** I read `bom-1.6.schema.json` field by field (the plan's correction #1 was that its first draft wasn't valid CycloneDX). Differences from the plan's draft that the schema forced:
+  - `mode` is a lower-case enum without XTS/OCB/EAX/SIV (see `cdxMode`).
+  - `primitive` has `unknown`.
+  - `nistQuantumSecurityLevel` is 0–6.
+  - `tools` uses the 1.5+ object form `{components: [...]}`.
+- Added beyond the plan:
+  - `CertificateProperties` (subject, issuer, validity, `subjectPublicKeyRef`, `signatureAlgorithmRef`)
+  - `RelatedCryptoMaterialProperties` (`type`, `state`, `algorithmRef`, `size`)
+  - `ProtocolProperties` (`type`, `version`)
+  - `Component.PURL`
+  - `Dependency.Provides` (CycloneDX 1.6's way for a library to "provide" a crypto asset)
+- **Only what ShorStop writes is modelled.** The full schema has hundreds of fields; types that list them all would be bigger and suggest support that doesn't exist. The schema forbids unknown fields (`additionalProperties: false`), which is one more reason not to invent any.
+- `NISTQuantumSecurityLevel` has no `omitempty`: 0 is meaningful ("not quantum-safe"), as in the plan's type.
+
+## `internal/report/cbom.go` (Phase 4)
+
+### `type CBOMOptions` / `func CBOM(fs, opts) *cbom.BOM`
+- **Grouping** (the plan: "group findings by algorithm+parameters into one component with many occurrences"):
+  - **one component per distinct algorithm** (name, size, mode, primitive)
+  - **per certificate** (subject, issuer, validity, key)
+  - **per public-key kind**
+  - **per enabled protocol version**
+  - **per library** (purl without version)
+  - Each place it was seen is an `evidence.occurrences` entry. Go's source tree (2,349 findings) becomes a 1.3 MB CBOM.
+- **Committed private keys are not grouped:** each is its own component, with `state: "compromised"`, CycloneDX's own word for a key anyone with the repository now holds. Two keys of the same type are two secrets to rotate.
+- **Readable, stable bom-refs** (`crypto:algorithm:RSA-2048:unknown`, `crypto:protocol:tls:TLSv1.0`, `pkg:npm/node-rsa`), derived from the asset, never from scan order, so the backend can diff two scans by ref (the plan's requirement). *Option rejected:* hashing everything, as the plan suggested. Readable refs are just as stable and can be debugged by eye. Hashes are used only where the identity is long or private: certificates (subject, issuer, dates) and private keys (file and line).
+- **Deterministic output** for given options: components sorted by ref, occurrences by location, rule lists sorted. `TestCBOMIsDeterministic` reverses the findings and requires byte-identical output.
+- `metadata.component` is the scanned project (`bom-ref: project`), and `dependencies` says the project depends on each library, and what each library provides.
+
+### `func WriteCBOM(w, bom)` / `func NewSerialNumber()`
+Indented JSON, with HTML escaping off (snippets keep `<`, `>` and `&` readable). The serial number is a version-4 UUID from `crypto/rand`, built by hand (10 lines) rather than with a UUID dependency.
+
+### `type builder` / `type entry` / `func (b *builder) get` / `func (e *entry) seen` / `func (e *entry) component`
+- **Data structures:** `map[bom-ref]*entry` accumulates components, and `map[library ref][]algorithm ref` holds the provides links. Each entry keeps its occurrences, rule IDs, highest confidence and rating, and becomes a `cbom.Component` at the end.
+- **Rating properties**, in the plan's `shorstop:*` namespace: `status`, `severity`, `reason`, `recommendation`, `confidence` (the highest among occurrences), `rules` (every rule ID that found it, for traceability back to `rules.yaml`), and `expired` on certificates.
+- An occurrence's `additionalContext` is `rule-id: snippet`, so a reader of the CBOM sees *why* each place counts, without opening the source. Snippets never contain key material (the detectors guarantee that).
+- When one ref gets findings with different ratings, the worst one wins (`get`).
+
+### `func (b *builder) algorithm(f, evidence)`
+- Builds the algorithm component: `primitive` (empty → `unknown`), `parameterSetIdentifier` (the named parameter set, otherwise the key size), `mode` (`cdxMode`), `classicalSecurityLevel` and `nistQuantumSecurityLevel` (from `classify`).
+- **The algorithm is rated on its own**, with its finding's context stripped (no PURL, no private-key flag), so an algorithm's rating doesn't change depending on which finding created it. The context is rated on the library and key components.
+- `evidence` is false when the algorithm is only *referenced*: by a library that provides it, by a key's `algorithmRef`, or by a certificate's signature. A library in package.json isn't evidence that the code calls RSA.
+
+### `type locKey` / `type certSig` / `func certSignatures(fs)` / `func (b *builder) certificate(f, sig)`
+- A certificate's three findings share a file and line (the crawler sorts by file, line, rule ID), so they're joined into one component. `subjectPublicKeyRef` points at the key's algorithm, `signatureAlgorithmRef` at the signer's algorithm, and **the certificate is rated by its weakest part** (key, signer, or signature hash). The first version ignored the hash, and a SHA-1-signed certificate came out "high". `TestCBOMSemantics` caught it before it shipped.
+- **When a location has several certificates** (a DER file of concatenated certificates is all line 0), signatures aren't linked, because which belongs to which can't be told. The certificates are still listed.
+- The same certificate in several files is one component (identity = subject, issuer, validity, key). `shorstop:expired` is set when `notValidAfter` is before the scan time, which is why the scan time is an option rather than `time.Now()` inside the function: it keeps tests deterministic.
+
+### `func (b *builder) material(f)` / `func (b *builder) protocol(f)` / `func (b *builder) library(f)`
+- **Keys:** `relatedCryptoMaterialProperties.type` = private-key/public-key, `algorithmRef`, `size`.
+- **Protocols:** `protocolProperties.type` is `tls` for SSL too (CycloneDX has no separate SSL type), and the version is spelled `1.2` / `3.0`, while the component name keeps the readable `TLSv1.2` / `SSLv3`.
+- **Libraries:** a `library` component keyed by the purl *without* version, so the manifest's range and the lockfile's exact version are one library with two occurrences, and the exact version fills `version`/`purl`. A rule that names an algorithm adds it to the library's `provides`.
+
+### `func purlParts` / `func algName` / `func cdxMode` / `func classicalLevel` / `func shortHash`
+- `algName`: `RSA-2048`, `AES-128-GCM`, `ML-KEM-768`, `Ed25519` (EdDSA-255), `X25519`/`DES`/`3DES` without their only size.
+- `cdxMode`: maps to the schema's enum; XTS/OCB/EAX/SIV become `other` rather than being dropped.
+- `classicalLevel`: only where it's well defined: AES/ChaCha20/3DES by key size, RSA/DSA/DH by NIST SP 800-57 Part 1 Table 2 (1024 → 80 … 15360 → 256), elliptic curves at half their size, SHA-2 by collision resistance. Broken or unknown algorithms are omitted rather than given an invented number.
+- `shortHash`: the first 8 bytes of SHA-256, in hex. That's enough to keep refs unique among the certificates and keys of one project.
+
+### Tests: `cbom_test.go`
+- **Schema validation is the plan's acceptance test.** The official CycloneDX 1.6 schema (plus the SPDX and JSF schemas it references) is committed in `testdata/cyclonedx/`, downloaded once from the CycloneDX repository's `1.6` tag. It's compiled **offline** by registering each file under its `$id`, with format assertions on (`date-time`, …). Validator: **`github.com/santhosh-tekuri/jsonschema/v6`** (project-owner decision, 2026-11-02). It's a **test-only** dependency: `go version -m bin/shorstop` lists only `go.yaml.in/yaml/v3` and `golang.org/x/crypto`.
+- **`TestCBOMOfAllFixturesIsValid`** scans every fixture in the repository with all five detectors, renders the CBOM, validates it, and checks that every asset type is present. Any finding any detector can produce is therefore checked against the schema. The 1.3 MB CBOM of Go's source tree was also validated once by hand.
+- **`TestCBOMGolden`** (`testdata/report/cbom.golden.json`): exact output for one finding of each kind, so changes to the CBOM's shape show up as diffs. **`TestCBOMIsDeterministic`**, **`TestCBOMSemantics`** (grouping, compromised keys, certificate refs and rating, library version and provides, protocol version, mode mapping, NIST level), and **`TestHelpers`**.
+
+---
+
 ## `cmd/shorstop/main.go` — `func detectors() ([]detect.Detector, error)`
 Builds every detector from `rules.Builtin()`, in one place, so `run` stays about flags and output. A broken embedded pack exits with code 2 and `loading rules: …`. `TestBuiltinLoads` makes that unreachable for shipped builds, but the path exists for `--rules` later. Order: goast, cert, config, deps, regex. **Order matters for duplicates:** when `detect.Dedupe` finds two identical findings, the earlier detector's is kept. The parsing detectors come before regex, so the more precise rule ID survives.
 
@@ -853,6 +923,14 @@ Returns subexpression *i*'s text from a `FindAllSubmatchIndex` location, if it t
 
 ### `func ratings(fs) string` (added with the classifier)
 Adds the plan's summary shape after the finding count, `· 12 critical · 48 high · 3 quantum-safe`, by calling `classify.Classify` on each finding. Severities with no findings are left out, and `info` is never listed by count (it's the "nothing to do" bucket). Quantum-safe findings are counted separately, because the plan wants progress shown, not only problems. It's a stand-in until the Phase 4 terminal reporter; the existing CLI test still matches because the prefix is unchanged.
+
+### `--format` flag and `formats.go` (added with the CBOM reporter)
+- **`var formats map[string]renderFunc`** maps each `--format` value to a renderer with one signature, so adding SARIF and Markdown is one map entry each. `formatNames` keeps help and error text in a fixed order (map order is random).
+- **Checked before the scan**, so `--format xlm` fails in milliseconds instead of after scanning a large repository. Exit code 2, as for every other usage error.
+- **`json` is the CBOM**, as in the plan's flag table, and **`cbom` is accepted as an alias**, because "json" doesn't say *which* JSON and users will reach for the name of the thing.
+- **Machine-readable formats print the summary to stderr**, so `shorstop --format json > cbom.json` gives a clean file, and the user still sees the counts.
+- **`renderCBOM`** fills in what findings don't carry: a random serial number (a CycloneDX serial identifies one BOM *document*, so every run gets a new one), the current time, the tool version, and `projectName(dir)`, the scanned directory's own name (`.` resolves to the working directory's name).
+- **`renderTable`** is the summary line until the terminal reporter replaces it.
 
 ### `func resolveVersion() string`
 - Checks, in order:
