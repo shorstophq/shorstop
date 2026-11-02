@@ -1,0 +1,19 @@
+version: "2"
+
+linters:
+  default: standard # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    - errorlint   # wrapped errors must be compared with errors.Is/As
+    - misspell
+    - unconvert
+    - gocritic
+  exclusions:
+    presets:
+      - std-error-handling # unchecked Close on read-only files, fmt.Fprint* to stdout/stderr
+    paths:
+      - testdata # fixtures deliberately contain weak crypto
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
