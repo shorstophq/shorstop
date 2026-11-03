@@ -42,6 +42,17 @@ const (
 	RuleDHParameters      = "dh-parameters"         // Diffie-Hellman parameters
 )
 
+// RuleDescriptions describes each built-in rule, for reports that list
+// rules (SARIF). Every Rule* constant must have an entry.
+var RuleDescriptions = map[string]string{
+	RuleCertPublicKey:     "A certificate's public key; its algorithm and size decide its quantum risk.",
+	RuleCertSignature:     "The algorithm a certificate's issuer signed it with.",
+	RuleCertSignatureHash: "The hash inside a certificate's signature algorithm; MD5 and SHA-1 signatures can be forged.",
+	RulePrivateKey:        "A private key, or a key store that holds them, committed to the repository.",
+	RulePublicKey:         "A public key, certificate signing request or SSH public key committed to the repository.",
+	RuleDHParameters:      "Diffie-Hellman parameters, as used by TLS servers for DHE key exchange.",
+}
+
 // derExts are extensions whose binary content is parsed as DER.
 var derExts = map[string]bool{".der": true, ".cer": true, ".crt": true}
 

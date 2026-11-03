@@ -1,0 +1,571 @@
+{
+  "$schema": "https://docs.oasis-open.org/sarif/sarif/v2.1.0/errata01/os/schemas/sarif-schema-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "shorstop",
+          "version": "v0.0.0-test",
+          "informationUri": "https://github.com/shorstop/shorstop",
+          "rules": [
+            {
+              "id": "cert-public-key",
+              "shortDescription": {
+                "text": "A certificate's public key; its algorithm and size decide its quantum risk."
+              },
+              "help": {
+                "text": "A certificate's public key; its algorithm and size decide its quantum risk.\n\nRecommendation: Migrate to ML-KEM (FIPS 203) for key exchange and encryption, and ML-DSA (FIPS 204) for signatures; for TLS, enable X25519MLKEM768.",
+                "markdown": "A certificate's public key; its algorithm and size decide its quantum risk.\n\n**Recommendation:** Migrate to ML-KEM (FIPS 203) for key exchange and encryption, and ML-DSA (FIPS 204) for signatures; for TLS, enable X25519MLKEM768."
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "tags": [
+                  "security",
+                  "cryptography",
+                  "post-quantum"
+                ],
+                "security-severity": "8.0"
+              }
+            },
+            {
+              "id": "cert-signature",
+              "shortDescription": {
+                "text": "The algorithm a certificate's issuer signed it with."
+              },
+              "help": {
+                "text": "The algorithm a certificate's issuer signed it with.\n\nRecommendation: Plan a migration of signatures to ML-DSA (FIPS 204) or SLH-DSA (FIPS 205).",
+                "markdown": "The algorithm a certificate's issuer signed it with.\n\n**Recommendation:** Plan a migration of signatures to ML-DSA (FIPS 204) or SLH-DSA (FIPS 205)."
+              },
+              "defaultConfiguration": {
+                "level": "warning"
+              },
+              "properties": {
+                "tags": [
+                  "security",
+                  "cryptography",
+                  "post-quantum"
+                ],
+                "security-severity": "5.5"
+              }
+            },
+            {
+              "id": "cert-signature-hash",
+              "shortDescription": {
+                "text": "The hash inside a certificate's signature algorithm; MD5 and SHA-1 signatures can be forged."
+              },
+              "help": {
+                "text": "The hash inside a certificate's signature algorithm; MD5 and SHA-1 signatures can be forged.\n\nRecommendation: Use SHA-256 or stronger (SHA-384, SHA-3).",
+                "markdown": "The hash inside a certificate's signature algorithm; MD5 and SHA-1 signatures can be forged.\n\n**Recommendation:** Use SHA-256 or stronger (SHA-384, SHA-3)."
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "tags": [
+                  "security",
+                  "cryptography",
+                  "post-quantum"
+                ],
+                "security-severity": "9.5"
+              }
+            },
+            {
+              "id": "dep-npm-node-forge",
+              "shortDescription": {
+                "text": "node-forge: pure-JS RSA, X.509, TLS, AES, 3DES, RC2, MD5 and SHA-1."
+              },
+              "help": {
+                "text": "node-forge: pure-JS RSA, X.509, TLS, AES, 3DES, RC2, MD5 and SHA-1.\n\nRecommendation: Check which algorithms it is used with.",
+                "markdown": "node-forge: pure-JS RSA, X.509, TLS, AES, 3DES, RC2, MD5 and SHA-1.\n\n**Recommendation:** Check which algorithms it is used with."
+              },
+              "defaultConfiguration": {
+                "level": "note"
+              },
+              "properties": {
+                "tags": [
+                  "security",
+                  "cryptography",
+                  "post-quantum"
+                ],
+                "security-severity": "3.0"
+              }
+            },
+            {
+              "id": "dep-npm-node-rsa",
+              "shortDescription": {
+                "text": "node-rsa: RSA encryption and signatures; broken by Shor's algorithm."
+              },
+              "help": {
+                "text": "node-rsa: RSA encryption and signatures; broken by Shor's algorithm.\n\nRecommendation: Migrate to ML-KEM (FIPS 203) for key exchange and encryption, and ML-DSA (FIPS 204) for signatures; for TLS, enable X25519MLKEM768.",
+                "markdown": "node-rsa: RSA encryption and signatures; broken by Shor's algorithm.\n\n**Recommendation:** Migrate to ML-KEM (FIPS 203) for key exchange and encryption, and ML-DSA (FIPS 204) for signatures; for TLS, enable X25519MLKEM768."
+              },
+              "defaultConfiguration": {
+                "level": "note"
+              },
+              "properties": {
+                "tags": [
+                  "security",
+                  "cryptography",
+                  "post-quantum"
+                ],
+                "security-severity": "3.0"
+              }
+            },
+            {
+              "id": "generic-aes-cipher-string",
+              "shortDescription": {
+                "text": "An AES cipher name with key size and mode, such as aes-256-cbc (OpenSSL, Node, PHP, Ruby, configs)."
+              },
+              "help": {
+                "text": "An AES cipher name with key size and mode, such as aes-256-cbc (OpenSSL, Node, PHP, Ruby, configs).\n\nRecommendation: Use AES-GCM (or another authenticated mode).",
+                "markdown": "An AES cipher name with key size and mode, such as aes-256-cbc (OpenSSL, Node, PHP, Ruby, configs).\n\n**Recommendation:** Use AES-GCM (or another authenticated mode)."
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "tags": [
+                  "security",
+                  "cryptography",
+                  "post-quantum"
+                ],
+                "security-severity": "8.0"
+              }
+            },
+            {
+              "id": "generic-rsa-bits",
+              "shortDescription": {
+                "text": "An RSA key-size string such as RSA-2048 or rsa:4096."
+              },
+              "help": {
+                "text": "An RSA key-size string such as RSA-2048 or rsa:4096.\n\nRecommendation: Migrate to ML-KEM (FIPS 203) for key exchange and encryption, and ML-DSA (FIPS 204) for signatures; for TLS, enable X25519MLKEM768.",
+                "markdown": "An RSA key-size string such as RSA-2048 or rsa:4096.\n\n**Recommendation:** Migrate to ML-KEM (FIPS 203) for key exchange and encryption, and ML-DSA (FIPS 204) for signatures; for TLS, enable X25519MLKEM768."
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "tags": [
+                  "security",
+                  "cryptography",
+                  "post-quantum"
+                ],
+                "security-severity": "8.0"
+              }
+            },
+            {
+              "id": "go-rsa-generate-key",
+              "shortDescription": {
+                "text": "Generates an RSA key; the key size is read from the call."
+              },
+              "help": {
+                "text": "Generates an RSA key; the key size is read from the call.\n\nRecommendation: Migrate to ML-KEM (FIPS 203) for key exchange and encryption, and ML-DSA (FIPS 204) for signatures; for TLS, enable X25519MLKEM768.",
+                "markdown": "Generates an RSA key; the key size is read from the call.\n\n**Recommendation:** Migrate to ML-KEM (FIPS 203) for key exchange and encryption, and ML-DSA (FIPS 204) for signatures; for TLS, enable X25519MLKEM768."
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "tags": [
+                  "security",
+                  "cryptography",
+                  "post-quantum"
+                ],
+                "security-severity": "8.0"
+              }
+            },
+            {
+              "id": "private-key-committed",
+              "shortDescription": {
+                "text": "A private key, or a key store that holds them, committed to the repository."
+              },
+              "help": {
+                "text": "A private key, or a key store that holds them, committed to the repository.\n\nRecommendation: Treat the key as compromised: revoke and rotate it, remove it from the repository history, and keep keys in a secret manager.",
+                "markdown": "A private key, or a key store that holds them, committed to the repository.\n\n**Recommendation:** Treat the key as compromised: revoke and rotate it, remove it from the repository history, and keep keys in a secret manager."
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "tags": [
+                  "security",
+                  "cryptography",
+                  "post-quantum"
+                ],
+                "security-severity": "9.5"
+              }
+            },
+            {
+              "id": "tls-protocol-version",
+              "shortDescription": {
+                "text": "A TLS or SSL version enabled in server configuration."
+              },
+              "help": {
+                "text": "A TLS or SSL version enabled in server configuration.\n\nRecommendation: Allow only TLS 1.2 and 1.3.",
+                "markdown": "A TLS or SSL version enabled in server configuration.\n\n**Recommendation:** Allow only TLS 1.2 and 1.3."
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "tags": [
+                  "security",
+                  "cryptography",
+                  "post-quantum"
+                ],
+                "security-severity": "8.0"
+              }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "generic-rsa-bits",
+          "ruleIndex": 6,
+          "level": "error",
+          "message": {
+            "text": "RSA-2048 (QUANTUM_VULNERABLE, high). RSA is broken by Shor's algorithm; if it protects key exchange or encryption, data encrypted today can be recorded and decrypted later. Migrate to ML-KEM (FIPS 203) for key exchange and encryption, and ML-DSA (FIPS 204) for signatures; for TLS, enable X25519MLKEM768."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "README.md",
+                  "uriBaseId": "%SRCROOT%"
+                },
+                "region": {
+                  "startLine": 3,
+                  "snippet": {
+                    "text": "rsa:2048"
+                  }
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "shorstop/v1": "2c32d9769a78c5bea143866609268f6d"
+          },
+          "properties": {
+            "shorstop:status": "QUANTUM_VULNERABLE",
+            "shorstop:severity": "high",
+            "shorstop:confidence": "medium",
+            "shorstop:asset": "RSA-2048"
+          }
+        },
+        {
+          "ruleId": "go-rsa-generate-key",
+          "ruleIndex": 7,
+          "level": "error",
+          "message": {
+            "text": "RSA-2048 (QUANTUM_VULNERABLE, high). RSA is broken by Shor's algorithm; if it protects key exchange or encryption, data encrypted today can be recorded and decrypted later. Migrate to ML-KEM (FIPS 203) for key exchange and encryption, and ML-DSA (FIPS 204) for signatures; for TLS, enable X25519MLKEM768."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "a.go",
+                  "uriBaseId": "%SRCROOT%"
+                },
+                "region": {
+                  "startLine": 10,
+                  "snippet": {
+                    "text": "rsa.GenerateKey(r, 2048)"
+                  }
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "shorstop/v1": "344dcc5644ee806ff358879b80bba170"
+          },
+          "properties": {
+            "shorstop:status": "QUANTUM_VULNERABLE",
+            "shorstop:severity": "high",
+            "shorstop:confidence": "high",
+            "shorstop:asset": "RSA-2048"
+          }
+        },
+        {
+          "ruleId": "generic-aes-cipher-string",
+          "ruleIndex": 5,
+          "level": "error",
+          "message": {
+            "text": "AES-128-ECB (INSECURE_MODE, high). ECB mode encrypts equal blocks to equal ciphertext, leaking patterns in the data. Use AES-GCM (or another authenticated mode)."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "b.js",
+                  "uriBaseId": "%SRCROOT%"
+                },
+                "region": {
+                  "startLine": 2
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "shorstop/v1": "29ea4af6380f9a64c4a116bc5aec2087"
+          },
+          "properties": {
+            "shorstop:status": "INSECURE_MODE",
+            "shorstop:severity": "high",
+            "shorstop:confidence": "medium",
+            "shorstop:asset": "AES-128-ECB"
+          }
+        },
+        {
+          "ruleId": "cert-public-key",
+          "ruleIndex": 0,
+          "level": "error",
+          "message": {
+            "text": "certificate with RSA-2048 key (QUANTUM_VULNERABLE, high). RSA is broken by Shor's algorithm; if it protects key exchange or encryption, data encrypted today can be recorded and decrypted later. Migrate to ML-KEM (FIPS 203) for key exchange and encryption, and ML-DSA (FIPS 204) for signatures; for TLS, enable X25519MLKEM768."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "ca.pem",
+                  "uriBaseId": "%SRCROOT%"
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "shorstop/v1": "5aabf0d438b04191c6d82aa8099bd50d"
+          },
+          "properties": {
+            "shorstop:status": "QUANTUM_VULNERABLE",
+            "shorstop:severity": "high",
+            "shorstop:confidence": "high",
+            "shorstop:asset": "certificate with RSA-2048 key"
+          }
+        },
+        {
+          "ruleId": "cert-signature",
+          "ruleIndex": 1,
+          "level": "warning",
+          "message": {
+            "text": "RSA (QUANTUM_VULNERABLE, medium). RSA signatures can be forged with Shor's algorithm on a large quantum computer. Plan a migration of signatures to ML-DSA (FIPS 204) or SLH-DSA (FIPS 205)."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "ca.pem",
+                  "uriBaseId": "%SRCROOT%"
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "shorstop/v1": "246a92be01797444ec3a0696854470d8"
+          },
+          "properties": {
+            "shorstop:status": "QUANTUM_VULNERABLE",
+            "shorstop:severity": "medium",
+            "shorstop:confidence": "high",
+            "shorstop:asset": "RSA"
+          }
+        },
+        {
+          "ruleId": "cert-signature-hash",
+          "ruleIndex": 2,
+          "level": "error",
+          "message": {
+            "text": "SHA-1 (BROKEN, critical). SHA-1 has practical collision attacks: signatures and integrity checks that rely on it can be forged. Use SHA-256 or stronger (SHA-384, SHA-3)."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "ca.pem",
+                  "uriBaseId": "%SRCROOT%"
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "shorstop/v1": "2fb6e36bd83ce47deb83dd6fc0a3ab5e"
+          },
+          "properties": {
+            "shorstop:status": "BROKEN",
+            "shorstop:severity": "critical",
+            "shorstop:confidence": "high",
+            "shorstop:asset": "SHA-1"
+          }
+        },
+        {
+          "ruleId": "private-key-committed",
+          "ruleIndex": 8,
+          "level": "error",
+          "message": {
+            "text": "RSA-2048 private key (QUANTUM_VULNERABLE, critical). A private key is committed to the repository: anyone who can read the repository has the key. Treat the key as compromised: revoke and rotate it, remove it from the repository history, and keep keys in a secret manager."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "k.key",
+                  "uriBaseId": "%SRCROOT%"
+                },
+                "region": {
+                  "startLine": 1,
+                  "snippet": {
+                    "text": "-----BEGIN RSA PRIVATE KEY-----"
+                  }
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "shorstop/v1": "48a8d4385439706c4624ce99bce15da9"
+          },
+          "properties": {
+            "shorstop:status": "QUANTUM_VULNERABLE",
+            "shorstop:severity": "critical",
+            "shorstop:confidence": "high",
+            "shorstop:asset": "RSA-2048 private key"
+          }
+        },
+        {
+          "ruleId": "tls-protocol-version",
+          "ruleIndex": 9,
+          "level": "error",
+          "message": {
+            "text": "TLSv1.0 (BROKEN, high). TLSv1.0 is deprecated by RFC 8996 and rejected by modern clients and PCI DSS. Allow only TLS 1.2 and 1.3."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "nginx.conf",
+                  "uriBaseId": "%SRCROOT%"
+                },
+                "region": {
+                  "startLine": 5
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "shorstop/v1": "d5ed528f2040dad7d872fe18c20c8609"
+          },
+          "properties": {
+            "shorstop:status": "BROKEN",
+            "shorstop:severity": "high",
+            "shorstop:confidence": "high",
+            "shorstop:asset": "TLSv1.0"
+          }
+        },
+        {
+          "ruleId": "dep-npm-node-rsa",
+          "ruleIndex": 4,
+          "level": "note",
+          "message": {
+            "text": "pkg:npm/node-rsa@1.1.1 (RSA) (QUANTUM_VULNERABLE, low). Dependency: RSA is broken by Shor's algorithm; if it protects key exchange or encryption, data encrypted today can be recorded and decrypted later. Migrate to ML-KEM (FIPS 203) for key exchange and encryption, and ML-DSA (FIPS 204) for signatures; for TLS, enable X25519MLKEM768."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "package-lock.json",
+                  "uriBaseId": "%SRCROOT%"
+                },
+                "region": {
+                  "startLine": 9
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "shorstop/v1": "c3a07f01423dd76c8566c2b7220191bc"
+          },
+          "properties": {
+            "shorstop:status": "QUANTUM_VULNERABLE",
+            "shorstop:severity": "low",
+            "shorstop:confidence": "low",
+            "shorstop:asset": "pkg:npm/node-rsa@1.1.1 (RSA)",
+            "shorstop:purl": "pkg:npm/node-rsa@1.1.1"
+          }
+        },
+        {
+          "ruleId": "dep-npm-node-rsa",
+          "ruleIndex": 4,
+          "level": "note",
+          "message": {
+            "text": "pkg:npm/node-rsa (RSA) (QUANTUM_VULNERABLE, low). Dependency: RSA is broken by Shor's algorithm; if it protects key exchange or encryption, data encrypted today can be recorded and decrypted later. Migrate to ML-KEM (FIPS 203) for key exchange and encryption, and ML-DSA (FIPS 204) for signatures; for TLS, enable X25519MLKEM768."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "package.json",
+                  "uriBaseId": "%SRCROOT%"
+                },
+                "region": {
+                  "startLine": 4
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "shorstop/v1": "d6ab553fb4467862886589feb4484691"
+          },
+          "properties": {
+            "shorstop:status": "QUANTUM_VULNERABLE",
+            "shorstop:severity": "low",
+            "shorstop:confidence": "low",
+            "shorstop:asset": "pkg:npm/node-rsa (RSA)",
+            "shorstop:purl": "pkg:npm/node-rsa"
+          }
+        },
+        {
+          "ruleId": "dep-npm-node-forge",
+          "ruleIndex": 3,
+          "level": "note",
+          "message": {
+            "text": "pkg:npm/node-forge (UNKNOWN, low). Dependency: A cryptographic library or object whose algorithms aren't known. Check which algorithms it is used with."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "package.json",
+                  "uriBaseId": "%SRCROOT%"
+                },
+                "region": {
+                  "startLine": 5
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "shorstop/v1": "f78c00e3358d9eb53b0e0078094a193b"
+          },
+          "properties": {
+            "shorstop:status": "UNKNOWN",
+            "shorstop:severity": "low",
+            "shorstop:confidence": "low",
+            "shorstop:asset": "pkg:npm/node-forge",
+            "shorstop:purl": "pkg:npm/node-forge"
+          }
+        }
+      ]
+    }
+  ]
+}

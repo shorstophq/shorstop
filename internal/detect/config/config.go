@@ -37,6 +37,20 @@ const (
 	RuleOpenSSLMD   = "openssl-default-md"   // openssl.cnf default_md: signing hash
 )
 
+// RuleDescriptions describes each built-in rule, for reports that list
+// rules (SARIF). Every Rule* constant must have an entry.
+var RuleDescriptions = map[string]string{
+	RuleTLSProtocol: "A TLS or SSL version enabled in server configuration.",
+	RuleTLSCipher:   "An algorithm enabled by a TLS cipher string (nginx, Apache, HAProxy, PostgreSQL, stunnel, openssl.cnf).",
+	RuleTLSGroup:    "A TLS key-exchange group (curve or finite-field group) enabled in server configuration.",
+	RuleSSHKex:      "An SSH key-exchange method enabled in OpenSSH configuration.",
+	RuleSSHCipher:   "An SSH cipher enabled in OpenSSH configuration.",
+	RuleSSHMAC:      "An SSH MAC enabled in OpenSSH configuration.",
+	RuleSSHKeyAlg:   "An SSH host-key or public-key signature algorithm enabled in OpenSSH configuration.",
+	RuleOpenSSLBits: "The RSA key size openssl.cnf gives new keys by default (default_bits).",
+	RuleOpenSSLMD:   "The hash openssl.cnf signs certificates and requests with by default (default_md).",
+}
+
 const (
 	maxStmtLines    = 20 // longest multi-line statement followed (nginx ";", "\" continuation)
 	directiveKeyMax = 64 // longest directive name read

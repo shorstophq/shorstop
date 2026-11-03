@@ -7,7 +7,10 @@ import (
 	"time"
 
 	"github.com/shorstop/shorstop/internal/crawler"
+	"github.com/shorstop/shorstop/internal/detect/cert"
+	"github.com/shorstop/shorstop/internal/detect/config"
 	"github.com/shorstop/shorstop/internal/report"
+	"github.com/shorstop/shorstop/internal/rules"
 )
 
 // renderFunc writes a scan result in one output format.
@@ -19,10 +22,23 @@ var formats = map[string]renderFunc{
 	"table": renderTable,
 	"json":  renderCBOM,
 	"cbom":  renderCBOM,
+	"sarif": renderSARIF,
 }
 
 // formatNames lists the formats in help text and errors, in a fixed order.
-var formatNames = []string{"table", "json", "cbom"}
+var formatNames = []string{"table", "json", "cbom", "sarif"}
+
+// renderSARIF writes the findings as SARIF 2.1.0 for code scanning.
+func renderSARIF(w io.Writer, res *crawler.Result, _ string) error {
+	pack, err := rules.Builtin()
+	if err != nil {
+		return err
+	}
+	return report.WriteSARIF(w, res.Findings, report.SARIFOptions{
+		ToolVersion: resolveVersion(),
+		Catalog:     report.NewCatalog(pack, cert.RuleDescriptions, config.RuleDescriptions),
+	})
+}
 
 // renderTable is the plain summary line until the terminal reporter exists.
 func renderTable(w io.Writer, res *crawler.Result, _ string) error {

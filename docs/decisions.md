@@ -568,6 +568,46 @@ Indented JSON, with HTML escaping off (snippets keep `<`, `>` and `&` readable).
 - **`TestCBOMOfAllFixturesIsValid`** scans every fixture in the repository with all five detectors, renders the CBOM, validates it, and checks that every asset type is present. Any finding any detector can produce is therefore checked against the schema. The 1.3 MB CBOM of Go's source tree was also validated once by hand.
 - **`TestCBOMGolden`** (`testdata/report/cbom.golden.json`): exact output for one finding of each kind, so changes to the CBOM's shape show up as diffs. **`TestCBOMIsDeterministic`**, **`TestCBOMSemantics`** (grouping, compromised keys, certificate refs and rating, library version and provides, protocol version, mode mapping, NIST level), and **`TestHelpers`**.
 
+## `internal/report/sarif.go` (Phase 4)
+
+SARIF 2.1.0, the plan's "highest-value format for adoption": GitHub code scanning reads it through `github/codeql-action/upload-sarif` and shows findings inline on pull requests.
+
+### `type Catalog` / `func NewCatalog(pack, builtins...)` and `cert.RuleDescriptions` / `config.RuleDescriptions`
+- SARIF lists every rule it reports, with a description. Rule-pack rules already carry `description`. The cert and config detectors' built-in IDs now have a `RuleDescriptions` map next to their constants, so adding an ID and its description happens in one place. This closes the "registry of rule IDs" item left open since the cert detector.
+- `Catalog` is a plain `map[id]description`: lookups are all SARIF needs. A missing ID falls back to "ShorStop rule x." rather than failing the report, and **`TestSARIFOfAllFixturesIsValid` fails if any ID emitted on the fixtures lacks a description**, so the fallback is never reached in practice.
+
+### `type SARIFOptions` / `IncludeInfo`
+**`info` findings (acceptable, quantum-safe) are left out by default.** SARIF results become code-scanning *alerts*, and an alert for AES-256 or ML-KEM is noise that teaches people to ignore the tool. The CBOM is the complete inventory, and SARIF is the to-do list. `IncludeInfo` exists for tests and future use; Go's source tree gives 1,282 alerts out of 2,349 findings.
+
+### SARIF types (`sarifLog` … `sarifResultProps`)
+Unexported and local to the reporter: only ShorStop writes them, and nothing decodes them (unlike the CBOM, whose types are public for the backend). Only the fields used are modelled.
+
+### `var securityScore` / `func sarifLevel(sev)`
+- **`security-severity`** is the rule property GitHub reads to label security alerts Critical (≥ 9.0), High (7.0–8.9), Medium (4.0–6.9) and Low (0.1–3.9). Our severities map to 9.5 / 8.0 / 5.5 / 3.0, the middle of each band, so GitHub's label matches ours.
+- **`level`:** critical and high → `error`, medium → `warning`, low → `note`.
+
+### `func WriteSARIF(w, fs, opts)`
+- **One rule can produce results of different severities** (`go-rsa-generate-key` finds RSA-1024, critical, and RSA-4096, high), but SARIF and GitHub take `security-severity` from the *rule*. *Options:* (a) split rules per severity (`go-rsa-generate-key/critical`), which would break the link to `rules.yaml` and to suppressions; (b) give the rule its **worst** severity among this run's results, and give each result its own `level` and `shorstop:severity`. **Chose (b):** a rule is as urgent as the worst thing it found.
+- **Only rules with results are listed**, sorted by ID; `ruleIndex` points into that list.
+- Results are in file, line, rule order, so the output is stable for diffs. An empty scan still writes `"results": []` and `"rules": []`, because GitHub rejects a log without them.
+- Each result's properties carry `shorstop:status`, `severity`, `confidence`, `asset` and `purl`, for anyone post-processing the log.
+
+### `func message(f, r)` / `func assetLabel(f)`
+The alert text is what a reviewer reads on a pull request, so it says everything in one line: **what** (`RSA-2048`, `TLSv1.0`, `RSA-2048 private key`, `pkg:npm/node-forge`), **the rating** (`BROKEN, critical`), **why**, and **what to do**. For example: `MD5 (BROKEN, critical). MD5 has practical collision attacks: … Use SHA-256 or stronger (SHA-384, SHA-3).`
+
+### `func location(f)`
+- The path is relative to `%SRCROOT%`, which code scanning resolves against the repository checkout. Each path segment is URI-escaped (`my ca.der` → `my%20ca.der`), as the schema's `uri` format requires.
+- **Binary files (line 0) get no region**: SARIF allows a file-level location, and a fake line 1 would point at bytes.
+
+### `func fingerprint(f)`
+- `partialFingerprints["shorstop/v1"]` = SHA-256 of rule, file, what was found and the trimmed source line, **without the line number**. GitHub uses fingerprints to track an alert across commits, so an alert keeps its identity, and its dismissed state, when code above it moves. *Option rejected:* letting the upload action compute GitHub's own line-hash fingerprints. Those work only on GitHub, and ours also serve the Phase 5 baselines.
+- The key is versioned (`/v1`), so the recipe can change later without colliding with old fingerprints.
+- *Tradeoff:* two identical findings in one file (the same import twice) share a fingerprint. GitHub then treats them as one alert, which is acceptable for identical lines.
+
+### Tests: `sarif_test.go`
+- **Validation against the OASIS-published SARIF 2.1.0 schema** (errata 01, `testdata/sarif/`, draft-04, compiled offline with the same validator as the CBOM). Like the CBOM test, **`TestSARIFOfAllFixturesIsValid`** renders every finding from every fixture, and it also checks every emitted rule ID has a description.
+- **`TestSARIFGolden`** (`testdata/report/sarif.golden.json`), **`TestSARIFSemantics`** (info left out, worst severity on the rule, `ruleIndex` correct, URI escaping, no region for binary files), **`TestFingerprintIgnoresLine`**, and **`TestSARIFEmpty`**.
+
 ---
 
 ## `cmd/shorstop/main.go` — `func detectors() ([]detect.Detector, error)`
@@ -931,6 +971,7 @@ Adds the plan's summary shape after the finding count, `· 12 critical · 48 hig
 - **Machine-readable formats print the summary to stderr**, so `shorstop --format json > cbom.json` gives a clean file, and the user still sees the counts.
 - **`renderCBOM`** fills in what findings don't carry: a random serial number (a CycloneDX serial identifies one BOM *document*, so every run gets a new one), the current time, the tool version, and `projectName(dir)`, the scanned directory's own name (`.` resolves to the working directory's name).
 - **`renderTable`** is the summary line until the terminal reporter replaces it.
+- **`renderSARIF`** (added with the SARIF reporter) builds the rule catalog from the rule pack plus `cert.RuleDescriptions` and `config.RuleDescriptions`. The catalog is assembled here, in the one place that knows every detector, so `report` doesn't need to know which detectors exist.
 
 ### `func resolveVersion() string`
 - Checks, in order:

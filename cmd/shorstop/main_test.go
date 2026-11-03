@@ -109,6 +109,46 @@ func TestRunFormatCBOM(t *testing.T) {
 	}
 }
 
+func TestRunFormatSARIF(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "app.py"), []byte("import hashlib\nh = hashlib.md5(b)\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"--dir", dir, "--format", "sarif"}, &stdout, &stderr); code != exitOK {
+		t.Fatalf("exit code = %d, stderr: %q", code, stderr.String())
+	}
+	var log struct {
+		Version string `json:"version"`
+		Runs    []struct {
+			Tool struct {
+				Driver struct {
+					Rules []struct {
+						ID               string `json:"id"`
+						ShortDescription struct {
+							Text string `json:"text"`
+						} `json:"shortDescription"`
+					} `json:"rules"`
+				} `json:"driver"`
+			} `json:"tool"`
+			Results []struct {
+				RuleID string `json:"ruleId"`
+				Level  string `json:"level"`
+			} `json:"results"`
+		} `json:"runs"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &log); err != nil {
+		t.Fatalf("stdout is not JSON (%v): %q", err, stdout.String())
+	}
+	r := log.Runs[0]
+	if log.Version != "2.1.0" || len(r.Results) != 1 || r.Results[0].RuleID != "py-hashlib-md5" || r.Results[0].Level != "error" {
+		t.Errorf("unexpected SARIF: %+v", log)
+	}
+	if d := r.Tool.Driver.Rules[0].ShortDescription.Text; !strings.Contains(d, "MD5") {
+		t.Errorf("rule description from the rule pack expected, got %q", d)
+	}
+}
+
 func TestRunUnknownFormat(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := run(context.Background(), []string{"--dir", t.TempDir(), "--format", "xml"}, &stdout, &stderr)
