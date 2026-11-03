@@ -1,0 +1,20 @@
+# ShorStop's own configuration, for scanning this repository. A crypto
+# scanner's source is full of algorithm names (lookup tables, test inputs);
+# what's left after this is the crypto the scanner itself uses.
+version: 1
+exclude:
+  - testdata/                 # fixtures: crypto and keys on purpose
+  - "*_test.go"               # test inputs name algorithms on purpose
+  - internal/rules/rules.yaml # the rule pack names every algorithm it detects
+  - docs/                     # the decision log discusses algorithms by name
+  - shorstop-implementation-plan.md
+disable:
+  # Name-only rules: here they match the detectors' own tables of names.
+  - generic-3des
+  - generic-rc4
+  - generic-aes-cipher-string
+  - generic-rsa-bits
+  - generic-mlkem-name
+  - generic-mldsa-name
+  - generic-x25519mlkem768
+  - generic-ssh-mlkem-kex

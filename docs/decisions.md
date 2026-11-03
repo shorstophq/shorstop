@@ -584,6 +584,23 @@ Indented JSON, with HTML escaping off (snippets keep `<`, `>` and `&` readable).
 - **Binary files (line 0) are never suppressed**: there's no line to put a comment on.
 - The first matching marker wins, and its reason and line are recorded.
 
+## `internal/rules/rules.go` — `Pack.Source`, `Merge`, `Without` (added with `.shorstop.yaml`)
+- **`Pack.Source`** is the file a pack came from (set by `Parse`), so a duplicate-ID error names both files: `rule "x" is defined in both rules.yaml and .shorstop/rules.yaml`.
+- **`func Merge(packs...)`** concatenates packs in order and **rejects duplicate IDs** rather than letting a later pack override an earlier one (see `loadRules`). Rules are copied by value. Their compiled regexes are pointers, so nothing is recompiled, and `ForDetector` hands out pointers into the merged pack.
+- **`func (p *Pack) Without(ids)`** returns a filtered copy; the built-in pack is shared process-wide (`Builtin`) and must not be modified.
+
+## `internal/settings/settings.go` (Phase 5)
+
+### `type Settings` / `const FileName = ".shorstop.yaml"`
+- The plan's config file: **`exclude`, `fail-on`, `baseline`, `max-file-size`, `rules`** (custom rule files), and **`disable`**, which isn't in the plan: rule IDs to turn off for the whole repository. That's the repository-wide counterpart to `shorstop:ignore` comments, for a rule that doesn't fit a codebase at all. Keys are kebab-case like the flags, so `fail-on` reads the same in both places.
+- **Output options (`format`, `output`) are deliberately not configurable**: they describe one run (a CI step writes SARIF, a developer reads the table), not the repository.
+- Package name `settings`, not `config`, because `config` is already the configuration-file *detector*.
+
+### `func Find(dir)` / `func Load(path)` / `func Parse(data)` / `func resolve(base, p)`
+- `Find` looks only at the scan root. Walking up parent directories like git does would make a scan of `src/` pick up a surprise config from far above it.
+- **Strict decoding** (`KnownFields`), as for rule files: `fail_on: high` is an error rather than a silently ignored key. An empty file is a valid, empty config. `version` may be left out (it defaults to 1); any other version is rejected.
+- **Paths are relative to the config file**, not the working directory (`resolve`), so `shorstop scan repo/` and `cd repo && shorstop` read the same baseline and rule files. Absolute paths are kept.
+
 ## `internal/baseline/baseline.go` (Phase 5)
 
 ### `type Baseline` / `func Load(path)` / `func Parse(data)`
@@ -1049,10 +1066,30 @@ Returns subexpression *i*'s text from a `FindAllSubmatchIndex` location, if it t
 #### `func countAtOrAbove(fs, threshold)`
 Counts reported findings rated at or above the threshold by `classify.Severity.Rank`; `none` counts nothing.
 
+#### `--config`, `--no-config`, `--rules` flags and `scanOptions.flags` (added with `.shorstop.yaml`)
+- `--config <file>` names the config explicitly. Otherwise `.shorstop.yaml` at the root of the scanned directory is used **if present**: a missing default is normal, but a missing explicit `--config` is an error. `--no-config` ignores the default file (an explicit `--config` still wins, since it's the more specific request).
+- `--rules <file>` (repeatable) adds rule files in the rule-pack format.
+- `scanOptions.flags` keeps the command's flag set, so `applySettings` can ask `Changed(name)`: **a flag given on the command line beats the config, and the config beats the flag's default.** Comparing values against defaults instead would get "`--fail-on none` given on purpose" wrong.
+
+#### `func applySettings(o)`
+Fills each option the command line didn't set from the config: `fail-on`, `baseline`, `max-file-size` (parsed by the same `byteSize.Set`, so `4MB` means the same in both places). **`exclude` and `rules` combine** (config first, then flags) rather than override: a one-off `--exclude` shouldn't silently drop the repository's standing excludes. The config's `fail-on` is then checked by the same validation as the flag.
+
+#### `func selfExcludes(dir, paths...)`
+**ShorStop never scans its own files** when they sit inside the scanned tree: the config, rule files, the baseline and the `--output` file. Each is excluded with an anchored pattern (`/ci/base.sarif`). They name crypto by design. The test that caught this had a custom rule file reported as 3DES usage, and **a baseline committed to the repository would have grown new findings on every run**, because its SARIF snippets contain "MD5" and friends. Paths outside the tree, or the root itself, are skipped. `TestBaselineInsideTheRepo` covers the committed-baseline case end to end.
+
+#### `func loadRules(files, disable)` / `func builtinIDs()`
+- Builds the rule pack for the scan: the built-in pack plus each rule file, parsed with the same strict `rules.Parse` (so custom rules carry `examples` too, validated at load), merged by `rules.Merge`.
+- **A custom rule may not reuse a built-in ID**, whether a rule-pack ID (checked by `Merge`) or a cert/config built-in (checked here via `builtinIDs`): suppressions, baselines and SARIF alert history key on IDs, so a silently replaced rule would change their meaning.
+- **`disable`:** rule-pack rules are removed from the pack (`Pack.Without`), so they never run. The cert and config detectors' built-in IDs have no pack entry, so they're returned for the scan to filter their findings. **An unknown ID is an error**, so a typo can't leave a rule on while looking disabled.
+- `detectors(pack)` (in `main.go`) now takes the pack instead of loading the built-in one, and `renderEnv.pack` gives SARIF the descriptions of custom rules too.
+
 ### `cmd/shorstop/rules_cmd.go` (Phase 5)
 
-#### `func newRulesCmd(stdout)` / `type ruleRow` / `func listRules(w, detector)`
-`shorstop rules list [--detector X]`: **every rule ShorStop can report**, both rule-pack rules and the cert/config detectors' built-in IDs, sorted by ID, with detector, algorithm and description, as a `tabwriter` table with a count (225 today). It's the reference users need to write `shorstop:ignore <rule-id>` comments. An unknown `--detector` is an error rather than an empty list.
+#### `func newRulesCmd(stdout)` / `type ruleRow` / `func listRules(w, pack, detector)`
+`shorstop rules list [--detector X] [--rules file]`: **every rule ShorStop can report**, both rule-pack rules and the cert/config detectors' built-in IDs, sorted by ID, with detector, algorithm and description, as a `tabwriter` table with a count (225 built in). It's the reference users need to write `shorstop:ignore <rule-id>` comments and `disable:` lists. With `--rules`, it also loads and **checks** a custom rule file, a quick way for rule authors to test a file without scanning anything. An unknown `--detector` is an error rather than an empty list.
+
+### `.shorstop.yaml` in this repository
+ShorStop dogfoods its own config. A crypto scanner's source is full of algorithm names (lookup tables like `tls.go`'s cipher table, test inputs), so the repository config excludes `testdata/`, `*_test.go`, the rule pack, `docs/` and the plan, and **disables the eight generic name rules**, which here only match the detectors' own tables. What's left is the crypto ShorStop really uses: the cert detector's `crypto/rsa`, `ecdsa`, `ed25519`, `dsa` and `ecdh` imports (for parsing keys), and `golang.org/x/crypto`. That's 10 findings, down from 132.
 
 ### `func writeOutput(path, stdout, write) error`
 - **What it does:** writes output to a file (`--output`) or to stdout, through a buffer.

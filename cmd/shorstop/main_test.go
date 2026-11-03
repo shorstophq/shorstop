@@ -141,6 +141,120 @@ func TestFailOnSuppressAndBaseline(t *testing.T) {
 	}
 }
 
+func TestConfigFileAndCustomRules(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, content string) {
+		t.Helper()
+		p := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("app.py", "import hashlib\nh = hashlib.md5(b)\nlegacy_cipher('blowfish')\n")
+	write("vendor_lib/x.py", "hashlib.sha1(b)\n")
+	write("README.md", "openssl req -newkey rsa:2048\n")
+	// A custom rule for an algorithm name the built-in pack doesn't cover,
+	// rated as the closest known algorithm.
+	write(".shorstop/rules.yaml", `version: 1
+rules:
+  - id: acme-legacy-cipher
+    description: ACME's in-house wrapper around Blowfish, a 64-bit block cipher.
+    detector: regex
+    languages: [python]
+    algorithm: 3DES
+    primitive: block-cipher
+    match: { keywords: [legacy_cipher], pattern: 'legacy_cipher\(', examples: ["legacy_cipher('blowfish')"] }
+`)
+	write(".shorstop.yaml", "fail-on: critical\nexclude: [vendor_lib/]\nrules: [.shorstop/rules.yaml]\ndisable: [generic-rsa-bits]\n")
+	scan := func(args ...string) (int, string, string) {
+		var stdout, stderr bytes.Buffer
+		code := run(context.Background(), append([]string{"scan", dir}, args...), &stdout, &stderr)
+		return code, stdout.String(), stderr.String()
+	}
+
+	// The config's fail-on, exclude, custom rule and disable all apply.
+	code, out, errOut := scan()
+	if code != exitFindings || !strings.Contains(out, "acme-legacy-cipher") || strings.Contains(out, "vendor_lib") ||
+		strings.Contains(out, "generic-rsa-bits") || !strings.Contains(out, "2 findings · 2 critical") {
+		t.Errorf("with config: code %d\n%s\n%s", code, out, errOut)
+	}
+	// A flag overrides the config; --exclude adds to it.
+	if code, out, _ := scan("--fail-on", "none", "--exclude", "app.py"); code != exitOK || !strings.Contains(out, "0 findings") {
+		t.Errorf("flags over config: code %d\n%s", code, out)
+	}
+	// --no-config ignores the file entirely.
+	if code, out, _ := scan("--no-config"); code != exitOK || !strings.Contains(out, "sha1") && !strings.Contains(out, "SHA-1") || strings.Contains(out, "acme-legacy-cipher") {
+		t.Errorf("--no-config: code %d\n%s", code, out)
+	}
+	// The custom rule's description reaches SARIF.
+	if _, out, _ := scan("--format", "sarif"); !strings.Contains(out, "in-house wrapper around Blowfish") {
+		t.Error("custom rule description missing from SARIF")
+	}
+	// rules list checks and shows a rule file.
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"rules", "list", "--rules", filepath.Join(dir, ".shorstop", "rules.yaml")}, &stdout, &stderr); code != exitOK || !strings.Contains(stdout.String(), "acme-legacy-cipher") {
+		t.Errorf("rules list --rules: code %d %s", code, stderr.String())
+	}
+
+	// Mistakes are errors, before scanning.
+	for name, cfg := range map[string]string{
+		"misspelt key":           "fail_on: high\n",
+		"unknown disabled rule":  "disable: [no-such-rule]\n",
+		"bad fail-on":            "fail-on: severe\n",
+		"bad size":               "max-file-size: huge\n",
+		"missing rule file":      "rules: [nope.yaml]\n",
+		"clash with built-in":    "rules: [.shorstop/clash.yaml]\n",
+		"clash with a pack rule": "rules: [.shorstop/dup.yaml]\n",
+	} {
+		write(".shorstop/clash.yaml", "version: 1\nrules:\n  - { id: tls-cipher, description: d, detector: regex, algorithm: RSA, match: { keywords: [rsa], pattern: rsa, examples: [rsa] } }\n")
+		write(".shorstop/dup.yaml", "version: 1\nrules:\n  - { id: go-rsa-import, description: d, detector: regex, algorithm: RSA, match: { keywords: [rsa], pattern: rsa, examples: [rsa] } }\n")
+		write(".shorstop.yaml", cfg)
+		if code, _, errOut := scan(); code != exitError || errOut == "" {
+			t.Errorf("%s: code %d, stderr %q", name, code, errOut)
+		}
+	}
+	// An explicit --config that doesn't exist is an error; a missing default is not.
+	if code, _, _ := scan("--config", filepath.Join(dir, "nope.yaml")); code != exitError {
+		t.Errorf("missing --config: code %d", code)
+	}
+}
+
+func TestSelfExcludes(t *testing.T) {
+	root := t.TempDir()
+	got := selfExcludes(root,
+		filepath.Join(root, ".shorstop.yaml"),
+		filepath.Join(root, "ci", "base.sarif"),
+		"", // unset
+		filepath.Join(root, "..", "elsewhere.sarif"), // outside the tree
+		root, // the root itself
+	)
+	want := []string{"/.shorstop.yaml", "/ci/base.sarif"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("selfExcludes = %q, want %q", got, want)
+	}
+}
+
+// TestBaselineInsideTheRepo: a committed baseline full of "MD5" snippets
+// must not be scanned into new findings.
+func TestBaselineInsideTheRepo(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.js"), []byte("crypto.createCipheriv('aes-128-ecb', k, null)\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	base := filepath.Join(dir, "base.sarif")
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"scan", dir, "-f", "sarif", "-o", base}, &stdout, &stderr); code != exitOK {
+		t.Fatal(stderr.String())
+	}
+	stdout.Reset()
+	if code := run(context.Background(), []string{"scan", dir, "--baseline", base, "--fail-on", "low"}, &stdout, &stderr); code != exitOK || !strings.Contains(stdout.String(), "0 findings · 1 in baseline") {
+		t.Errorf("code %d\n%s", code, stdout.String())
+	}
+}
+
 func TestRulesList(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if code := run(context.Background(), []string{"rules", "list"}, &stdout, &stderr); code != exitOK {

@@ -24,6 +24,7 @@ type renderEnv struct {
 	// the findings to report.
 	all                   []detect.Finding
 	suppressed, baselined int
+	pack                  *rules.Pack // the rules in effect, for SARIF's rule descriptions
 }
 
 // renderFunc writes a scan result in one output format.
@@ -67,14 +68,10 @@ func renderCBOM(w io.Writer, res *crawler.Result, env renderEnv) error {
 }
 
 // renderSARIF writes the findings as SARIF 2.1.0 for code scanning.
-func renderSARIF(w io.Writer, res *crawler.Result, _ renderEnv) error {
-	pack, err := rules.Builtin()
-	if err != nil {
-		return err
-	}
+func renderSARIF(w io.Writer, res *crawler.Result, env renderEnv) error {
 	return report.WriteSARIF(w, res.Findings, report.SARIFOptions{
 		ToolVersion: resolveVersion(),
-		Catalog:     report.NewCatalog(pack, cert.RuleDescriptions, config.RuleDescriptions),
+		Catalog:     report.NewCatalog(env.pack, cert.RuleDescriptions, config.RuleDescriptions),
 	})
 }
 

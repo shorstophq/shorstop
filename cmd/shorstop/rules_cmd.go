@@ -21,15 +21,21 @@ func newRulesCmd(stdout io.Writer) *cobra.Command {
 		Args:  cobra.NoArgs,
 	}
 	var detector string
+	var files stringList
 	list := &cobra.Command{
 		Use:   "list",
 		Short: "List every rule: the rule pack and the built-in certificate and configuration rules",
 		Args:  cobra.NoArgs,
 		RunE: func(*cobra.Command, []string) error {
-			return listRules(stdout, detector)
+			pack, _, err := loadRules(files, nil)
+			if err != nil {
+				return err
+			}
+			return listRules(stdout, pack, detector)
 		},
 	}
 	list.Flags().StringVar(&detector, "detector", "", "only rules of this detector (goast, regex, deps, cert, config)")
+	list.Flags().Var(&files, "rules", "also list the rules of this rule file, checking it (repeatable)")
 	rulesCmd.AddCommand(list)
 	return rulesCmd
 }
@@ -37,11 +43,7 @@ func newRulesCmd(stdout io.Writer) *cobra.Command {
 // ruleRow is one line of `rules list`.
 type ruleRow struct{ id, detector, algorithm, description string }
 
-func listRules(w io.Writer, detector string) error {
-	pack, err := rules.Builtin()
-	if err != nil {
-		return err
-	}
+func listRules(w io.Writer, pack *rules.Pack, detector string) error {
 	var rows []ruleRow
 	for _, r := range pack.Rules {
 		rows = append(rows, ruleRow{r.ID, r.Detector, cmp.Or(r.Algorithm, "-"), r.Description})
@@ -67,6 +69,6 @@ func listRules(w io.Writer, detector string) error {
 	if err := tw.Flush(); err != nil {
 		return err
 	}
-	_, err = fmt.Fprintf(w, "%d rules\n", len(rows))
+	_, err := fmt.Fprintf(w, "%d rules\n", len(rows))
 	return err
 }

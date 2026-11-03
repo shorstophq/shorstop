@@ -102,6 +102,41 @@ var idPattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 type Pack struct {
 	Version int
 	Rules   []Rule
+	Source  string // the file it was parsed from, for error messages
+}
+
+// Merge combines packs into one, in order. Rule IDs must be unique across
+// all of them: a custom rule can't silently replace a built-in one, because
+// suppressions and baselines would then mean something else.
+func Merge(packs ...*Pack) (*Pack, error) {
+	out := &Pack{Version: FormatVersion, Source: "merged"}
+	from := make(map[string]string) // id -> source
+	var errs []error
+	for _, p := range packs {
+		for _, r := range p.Rules {
+			if src, dup := from[r.ID]; dup {
+				errs = append(errs, fmt.Errorf("rule %q is defined in both %s and %s", r.ID, src, p.Source))
+				continue
+			}
+			from[r.ID] = p.Source
+			out.Rules = append(out.Rules, r)
+		}
+	}
+	if len(errs) > 0 {
+		return nil, errors.Join(errs...)
+	}
+	return out, nil
+}
+
+// Without returns a copy of p without the rules whose IDs are in ids.
+func (p *Pack) Without(ids []string) *Pack {
+	out := &Pack{Version: p.Version, Source: p.Source}
+	for _, r := range p.Rules {
+		if !slices.Contains(ids, r.ID) {
+			out.Rules = append(out.Rules, r)
+		}
+	}
+	return out
 }
 
 // Rule describes one piece of cryptography and how to recognise it.
@@ -241,7 +276,7 @@ func Parse(data []byte, source string) (*Pack, error) {
 	if len(errs) > 0 {
 		return nil, errors.Join(errs...)
 	}
-	return &Pack{Version: f.Version, Rules: f.Rules}, nil
+	return &Pack{Version: f.Version, Rules: f.Rules, Source: source}, nil
 }
 
 // ruleLines returns the 1-based line of each element of the top-level

@@ -142,19 +142,16 @@ func writeOutput(path string, stdout io.Writer, write func(io.Writer) error) err
 	return err
 }
 
-// detectors builds every detector from the built-in rule pack.
-func detectors() ([]detect.Detector, error) {
-	pack, err := rules.Builtin()
-	if err != nil {
-		return nil, err
-	}
+// detectors builds every detector from a rule pack: the built-in one,
+// possibly merged with --rules files and with disabled rules removed.
+func detectors(pack *rules.Pack) []detect.Detector {
 	return []detect.Detector{
 		goast.New(pack.ForDetector(rules.DetectorGoAST)),
 		cert.New(),
 		config.New(),
 		deps.New(pack.ForDetector(rules.DetectorDeps)),
 		regex.New(pack.ForDetector(rules.DetectorRegex)),
-	}, nil
+	}
 }
 
 // summary is the one-line scan summary. res.Findings are the findings
