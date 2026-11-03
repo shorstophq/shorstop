@@ -149,6 +149,56 @@ func TestRunFormatSARIF(t *testing.T) {
 	}
 }
 
+func TestRunTableAndMarkdown(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "app.py"), []byte("import hashlib\nh = hashlib.md5(b)\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"--dir", dir}, &stdout, &stderr); code != exitOK {
+		t.Fatalf("exit code = %d, stderr: %q", code, stderr.String())
+	}
+	out := stdout.String()
+	if !strings.HasPrefix(out, "CRITICAL · 1\n  MD5 · BROKEN · 1 place\n") || !strings.Contains(out, "app.py:2") ||
+		!strings.Contains(out, "\nScanned 1 files · 1 findings · 1 critical") || strings.Contains(out, "\x1b[") {
+		t.Errorf("default table (to a buffer: no colour):\n%s", out)
+	}
+
+	stdout.Reset()
+	if code := run(context.Background(), []string{"--dir", dir, "--format", "markdown"}, &stdout, &stderr); code != exitOK {
+		t.Fatalf("exit code = %d", code)
+	}
+	if !strings.HasPrefix(stdout.String(), "## ShorStop post-quantum scan\n\n**1 findings** · 1 critical") {
+		t.Errorf("markdown:\n%s", stdout.String())
+	}
+}
+
+func TestUseColor(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	defer w.Close()
+	if useColor(w) {
+		t.Error("a pipe is not a terminal")
+	}
+	if useColor(&bytes.Buffer{}) {
+		t.Error("a buffer is not a terminal")
+	}
+	if tty, err := os.OpenFile("/dev/tty", os.O_WRONLY, 0); err == nil {
+		defer tty.Close()
+		t.Setenv("NO_COLOR", "")
+		if !useColor(tty) {
+			t.Error("a terminal with NO_COLOR unset should get colour")
+		}
+		t.Setenv("NO_COLOR", "1")
+		if useColor(tty) {
+			t.Error("NO_COLOR must turn colour off")
+		}
+	}
+}
+
 func TestRunUnknownFormat(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := run(context.Background(), []string{"--dir", t.TempDir(), "--format", "xml"}, &stdout, &stderr)

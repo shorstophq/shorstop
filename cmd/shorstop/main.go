@@ -16,7 +16,6 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/shorstop/shorstop/internal/classify"
 	"github.com/shorstop/shorstop/internal/crawler"
 	"github.com/shorstop/shorstop/internal/detect"
 	"github.com/shorstop/shorstop/internal/detect/cert"
@@ -24,6 +23,7 @@ import (
 	"github.com/shorstop/shorstop/internal/detect/deps"
 	"github.com/shorstop/shorstop/internal/detect/goast"
 	"github.com/shorstop/shorstop/internal/detect/regex"
+	"github.com/shorstop/shorstop/internal/report"
 	"github.com/shorstop/shorstop/internal/rules"
 )
 
@@ -126,7 +126,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 			}
 			return nil
 		}
-		return render(w, res, *dir)
+		// Colour only on a terminal: never in --output files or pipes.
+		return render(w, res, renderEnv{dir: *dir, color: *output == "" && useColor(stdout)})
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "shorstop: writing output: %v\n", err)
@@ -184,32 +185,7 @@ func detectors() ([]detect.Detector, error) {
 func summary(res *crawler.Result) string {
 	s := res.Stats
 	return fmt.Sprintf("Scanned %d files · %d findings%s (skipped: %d ignored, %d too large, %d binary, %d not regular, %d failed) · %d warnings",
-		s.Scanned, len(res.Findings), ratings(res.Findings), s.Ignored, s.TooLarge, s.Binary, s.NotRegular, s.Failed, len(res.Errors))
-}
-
-// ratings summarises the findings' classifications, as the plan's terminal
-// summary does: " · 12 critical · 48 high · 3 quantum-safe". Severities with
-// no findings are left out.
-func ratings(fs []detect.Finding) string {
-	bySev := make(map[classify.Severity]int)
-	safe := 0
-	for _, f := range fs {
-		r := classify.Classify(f)
-		bySev[r.Severity]++
-		if r.Status == classify.QuantumSafe {
-			safe++
-		}
-	}
-	var b strings.Builder
-	for _, sev := range []classify.Severity{classify.Critical, classify.High, classify.Medium, classify.Low} {
-		if n := bySev[sev]; n > 0 {
-			fmt.Fprintf(&b, " · %d %s", n, sev)
-		}
-	}
-	if safe > 0 {
-		fmt.Fprintf(&b, " · %d quantum-safe", safe)
-	}
-	return b.String()
+		s.Scanned, len(res.Findings), report.Count(res.Findings), s.Ignored, s.TooLarge, s.Binary, s.NotRegular, s.Failed, len(res.Errors))
 }
 
 func resolveVersion() string {

@@ -568,6 +568,52 @@ Indented JSON, with HTML escaping off (snippets keep `<`, `>` and `&` readable).
 - **`TestCBOMOfAllFixturesIsValid`** scans every fixture in the repository with all five detectors, renders the CBOM, validates it, and checks that every asset type is present. Any finding any detector can produce is therefore checked against the schema. The 1.3 MB CBOM of Go's source tree was also validated once by hand.
 - **`TestCBOMGolden`** (`testdata/report/cbom.golden.json`): exact output for one finding of each kind, so changes to the CBOM's shape show up as diffs. **`TestCBOMIsDeterministic`**, **`TestCBOMSemantics`** (grouping, compromised keys, certificate refs and rating, library version and provides, protocol version, mode mapping, NIST level), and **`TestHelpers`**.
 
+## `internal/report/group.go` (added with the terminal and Markdown reporters)
+
+### `type rated` / `type assetGroup` / `var severities` / `func groupFindings(fs, includeInfo)`
+- Both human-readable reports are grouped **by severity, then by asset and rating**: the 22 places MD5 is used are one entry with 22 locations, not 22 rows that each repeat the reason and the advice. Groups are ordered most severe first, then most frequent (the biggest problem of a severity first), then by name.
+- **Data structures:** a `map[key]index` into a `[]assetGroup` slice, which keeps first-seen order for the stable sort. The key is severity + label + status + reason, so two RSA-2048 findings with different ratings (an import vs. a committed key) stay apart.
+- `info` (acceptable, quantum-safe) is left out by default, for the same reason as in SARIF. Those findings still show in the summary count.
+
+### `func groupLabel(f)`
+`assetLabel` without a library's version, so `pkg:npm/node-rsa` (package.json range) and `pkg:npm/node-rsa@1.1.1` (lockfile) are one library, as in the CBOM. The first version grouped them apart, and the golden review caught it. Per-file rows and SARIF messages keep the exact version.
+
+### `type Counts` / `func Count(fs)` / `func (Counts) String()`
+Findings by severity plus the quantum-safe count, and the plan's summary text (`· 12 critical · 48 high · 3 quantum-safe`). This was `ratings()` in `main`; it moved here so the terminal summary and the Markdown header count the same way.
+
+### `func loc(f)`
+`path:line`, or just `path` for binary files.
+
+## `internal/report/table.go` (Phase 4, the default output)
+
+### `type TableOptions` / `func WriteTable(w, fs, opts)`
+- The plan's "coloured table grouped by severity". Each severity heading carries its count, and under it each asset shows its status, number of places, **reason, recommendation (→)**, then its locations with the rule that found each.
+- **At most 5 locations per asset** (`MaxLocations`), then "… and N more (all are in --format json or sarif)". A terminal screen is for deciding what to fix first; the full lists are in the machine formats. On Go's source tree an unlimited list would be thousands of lines.
+- Locations are aligned with `text/tabwriter`. Colour codes are kept out of the tabwriter columns, because escape sequences would count toward column width.
+- **The summary line is the caller's job**, since it needs the crawler's skip statistics, which the reporter doesn't have.
+- The output is built in a `strings.Builder` and written once, so a slow terminal gets one write rather than thousands.
+
+### ANSI constants / `var severityColor`
+Bold red for critical, red for high, yellow for medium, cyan for low, green for the recommendation arrow and for info. These are the plain 16-colour codes every terminal supports.
+
+### `func clean(s)`
+**Control characters in file paths and names are replaced with `?`.** A repository can contain a file named `\x1b[2J…`, and printing it raw would let a scanned repository clear or rewrite the user's terminal (terminal escape injection). C1 controls (0x80–0x9F) are included. `TestUntrustedText` checks it.
+
+## `internal/report/markdown.go` (Phase 4)
+
+### `type MarkdownOptions` / `func WriteMarkdown(w, fs, opts)`
+- The plan's "summary table plus per-file sections; usable as a PR comment or audit attachment". The header line has the counts; the **summary table** has one row per asset and rating (severity, asset, status, places, what to do); then **one collapsible `<details>` section per file** (line, asset, status, severity, rule), so a long report stays short in a PR until someone opens a file.
+- **Size budget, not a row cap.** GitHub rejects comments over 65,536 characters. The first version capped rows at 500, and Go's source tree still produced 71 KB, because rows vary in length, so measuring showed the cap was wrong. Now `MaxBytes` (default 60,000, leaving room for text around the report) is checked **per whole file section**, and the report ends with "N more files not shown …". The budget counts bytes, which are never fewer than characters, so it's safe for the character limit. A section is never cut in the middle, since half a table renders as garbage. The summary table is never cut. Go's source tree now gives 59,650 bytes.
+- An all-clear scan says "Nothing needs attention." under its counts, which is useful as a PR comment too.
+
+### `func mdCell(s)` / `func htmlEscape(s)`
+Paths, package names and labels come from the scanned repository, so they're **untrusted**. Inside table cells, `|` (ends the cell), `` ` ``, `*`, `_`, `[`, `]` (formatting and links) are escaped, and `<`, `>`, `&` become HTML entities. A file named `a|b<script>.go` can't break the table or inject markup into a PR comment. Snippets are deliberately not included in Markdown: they're the least trusted text and add little that the line number doesn't.
+
+### Tests: `text_test.go`
+`TestTableGolden` (`testdata/report/table.golden.txt`) and `TestMarkdownGolden` (`markdown.golden.md`) pin the exact output for the shared golden findings. **`TestTableColorAndLimit`** (coloured header, 3 places then "… and 5 more"), **`TestUntrustedText`** (no escape sequence reaches the terminal, no markup reaches the Markdown), **`TestMarkdownLimits`** (whole sections within the budget, the note, the uncut summary, the all-clear text), and **`TestCountString`**. In `cmd/shorstop`: **`TestRunTableAndMarkdown`** (the default table to a buffer has no colour) and **`TestUseColor`** (pipes and buffers get no colour; a real terminal gets colour unless `NO_COLOR` is set).
+
+**This completes Phase 4.** All four formats render from the same `[]Finding` through `classify.Classify`, and the CBOM passes schema validation (and SARIF passes its schema too).
+
 ## `internal/report/sarif.go` (Phase 4)
 
 SARIF 2.1.0, the plan's "highest-value format for adoption": GitHub code scanning reads it through `github/codeql-action/upload-sarif` and shows findings inline on pull requests.
@@ -959,10 +1005,8 @@ Returns subexpression *i*'s text from a `FindAllSubmatchIndex` location, if it t
   - Tradeoff: the file isn't written atomically (temp file plus rename). A crash mid-write leaves a partial file. Acceptable for a report; revisit for `--baseline` files in Phase 5, where a corrupt baseline would matter.
 
 ### `func summary(res) string`
-- One line with every `Stats` counter. It's a stand-in until the terminal reporter (Phase 4) adds colour and severity grouping. It shows **every skip reason**, so a user can see at a glance why the count is lower than expected.
-
-### `func ratings(fs) string` (added with the classifier)
-Adds the plan's summary shape after the finding count, `· 12 critical · 48 high · 3 quantum-safe`, by calling `classify.Classify` on each finding. Severities with no findings are left out, and `info` is never listed by count (it's the "nothing to do" bucket). Quantum-safe findings are counted separately, because the plan wants progress shown, not only problems. It's a stand-in until the Phase 4 terminal reporter; the existing CLI test still matches because the prefix is unchanged.
+- One line with every `Stats` counter, plus the ratings from `report.Count` (`· 12 critical · 48 high · 3 quantum-safe`). It's the last line of the terminal table and goes to stderr for every other format. It shows **every skip reason**, so a user can see at a glance why the count is lower than expected.
+- The rating counts were first a `ratings()` function here (added with the classifier). They moved to `report.Count` with the terminal and Markdown reporters, so every format counts the same way.
 
 ### `--format` flag and `formats.go` (added with the CBOM reporter)
 - **`var formats map[string]renderFunc`** maps each `--format` value to a renderer with one signature, so adding SARIF and Markdown is one map entry each. `formatNames` keeps help and error text in a fixed order (map order is random).
@@ -970,7 +1014,9 @@ Adds the plan's summary shape after the finding count, `· 12 critical · 48 hig
 - **`json` is the CBOM**, as in the plan's flag table, and **`cbom` is accepted as an alias**, because "json" doesn't say *which* JSON and users will reach for the name of the thing.
 - **Machine-readable formats print the summary to stderr**, so `shorstop --format json > cbom.json` gives a clean file, and the user still sees the counts.
 - **`renderCBOM`** fills in what findings don't carry: a random serial number (a CycloneDX serial identifies one BOM *document*, so every run gets a new one), the current time, the tool version, and `projectName(dir)`, the scanned directory's own name (`.` resolves to the working directory's name).
-- **`renderTable`** is the summary line until the terminal reporter replaces it.
+- **`renderTable`** (the default) writes `report.WriteTable` and then the summary line. **`renderMarkdown`** writes `report.WriteMarkdown`.
+- **`type renderEnv`** (added with the terminal reporter) passes what a renderer needs besides the result: the directory, and whether colour is allowed. It's a struct, so a new need (a terminal width, say) doesn't change every renderer's signature again.
+- **`func useColor(w)`:** colour only when stdout is a **character device** (a terminal) and **`NO_COLOR`** (no-color.org) is unset or empty, and never with `--output`, because a file isn't a terminal. That's the plan's 4a rule. *Option rejected:* `golang.org/x/term`'s `IsTerminal`, a new dependency for a check that `os.File.Stat`'s `ModeCharDevice` already does on every OS we target. CI logs (GitHub Actions) aren't terminals, so they get plain text. A `--color=always` override can come with the Phase 5 flags if anyone asks.
 - **`renderSARIF`** (added with the SARIF reporter) builds the rule catalog from the rule pack plus `cert.RuleDescriptions` and `config.RuleDescriptions`. The catalog is assembled here, in the one place that knows every detector, so `report` doesn't need to know which detectors exist.
 
 ### `func resolveVersion() string`
