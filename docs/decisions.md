@@ -1198,6 +1198,13 @@ The `standard` set plus `errorlint`, `misspell`, `unconvert`, `gocritic`. `gosec
   - *Options:* (a) `_ = f.Close()` / `_, _ = fmt.Fprintf(...)` at each call site; (b) errcheck's `exclude-functions` list; (c) the preset. **Chose (c):** the preset covers exactly these standard-library cases, and call sites stay idiomatic.
   - *Tradeoff:* errcheck will also ignore an unchecked `Close` on a **writable** file, where the error does matter. Rule: writable files (e.g. `writeOutput`'s `--output` file) must check `Close` explicitly, and code review has to enforce that because the linter no longer will.
 
+### `README.md` (added after the first push, 2026-11-03)
+- **It claims only what exists.** There are no binary releases, Docker image or GitHub Action yet, so the README says "pre-release", installs with `go install` (which works now that the module is public, with Go 1.27+), and shows a CI workflow that installs with Go and uploads SARIF itself. The Action's shorter form replaces that workflow once it's published. A README that promised `brew install` before the tap existed would fail its first reader.
+- **Every example was run before it was written down.** The sample output comes from a real scan of a demo project (trimmed with `...`). The workflow YAML parses. The `.shorstop.yaml` and custom-rule examples load, with the rule's `examples` passing. The two `shorstop:ignore` examples suppress what they claim (4 findings). The `upload-sarif` version was checked against the action's releases (v4 is current, v3 is still maintained).
+- **The title opens with "post-quantum cryptography scanner"**, following the plan's naming note: search engines read "shorstop" as "shortstop", so the title and first line say what it is. The repository's GitHub description starts the same way.
+- **The known limitations are listed openly** (comments matched, no Go type checking, build-defined OpenSSL sets, hybrid key exchange, 2 MB lockfiles, unresolved Maven/Gradle versions). They're the same gaps this log records, and a security tool that hides its blind spots is trusted less, not more.
+- The repository's own `.shorstop.yaml` excludes `README.md` alongside `docs/`: its examples name algorithms and key-generation commands on purpose.
+
 ### `.github/workflows/ci.yml`
 A matrix of Go 1.27 (floor) and stable. Both are 1.27 today; they'll diverge when 1.28 ships, without editing the file. `permissions: contents: read`. Actions are pinned to major tags; switch to SHA pins before public launch.
 

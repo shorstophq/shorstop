@@ -7,6 +7,7 @@ exclude:
   - "*_test.go"               # test inputs name algorithms on purpose
   - internal/rules/rules.yaml # the rule pack names every algorithm it detects
   - docs/                     # the decision log discusses algorithms by name
+  - README.md                 # usage examples name algorithms and commands
 disable:
   # Name-only rules: here they match the detectors' own tables of names.
   - generic-3des
