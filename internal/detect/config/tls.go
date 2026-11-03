@@ -3,7 +3,7 @@ package config
 import (
 	"strings"
 
-	"github.com/shorstop/shorstop/internal/detect"
+	"github.com/shorstophq/shorstop/internal/detect"
 )
 
 // algo is one algorithm a configuration value enables.

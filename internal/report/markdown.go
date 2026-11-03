@@ -7,7 +7,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/shorstop/shorstop/internal/detect"
+	"github.com/shorstophq/shorstop/internal/detect"
 )
 
 // MarkdownOptions control the Markdown report.

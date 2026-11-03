@@ -19,7 +19,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/shorstop/shorstop/internal/detect"
+	"github.com/shorstophq/shorstop/internal/detect"
 )
 
 // Marker is the text that starts a suppression.

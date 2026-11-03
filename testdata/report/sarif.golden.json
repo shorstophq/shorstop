@@ -7,7 +7,7 @@
         "driver": {
           "name": "shorstop",
           "version": "v0.0.0-test",
-          "informationUri": "https://github.com/shorstop/shorstop",
+          "informationUri": "https://github.com/shorstophq/shorstop",
           "rules": [
             {
               "id": "cert-public-key",

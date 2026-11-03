@@ -15,15 +15,15 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/shorstop/shorstop/internal/crawler"
-	"github.com/shorstop/shorstop/internal/detect"
-	"github.com/shorstop/shorstop/internal/detect/cert"
-	"github.com/shorstop/shorstop/internal/detect/config"
-	"github.com/shorstop/shorstop/internal/detect/deps"
-	"github.com/shorstop/shorstop/internal/detect/goast"
-	"github.com/shorstop/shorstop/internal/detect/regex"
-	"github.com/shorstop/shorstop/internal/report"
-	"github.com/shorstop/shorstop/internal/rules"
+	"github.com/shorstophq/shorstop/internal/crawler"
+	"github.com/shorstophq/shorstop/internal/detect"
+	"github.com/shorstophq/shorstop/internal/detect/cert"
+	"github.com/shorstophq/shorstop/internal/detect/config"
+	"github.com/shorstophq/shorstop/internal/detect/deps"
+	"github.com/shorstophq/shorstop/internal/detect/goast"
+	"github.com/shorstophq/shorstop/internal/detect/regex"
+	"github.com/shorstophq/shorstop/internal/report"
+	"github.com/shorstophq/shorstop/internal/rules"
 )
 
 // version is set at build time with -ldflags "-X main.version=v1.2.3".

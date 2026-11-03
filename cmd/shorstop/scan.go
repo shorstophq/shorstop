@@ -13,14 +13,14 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
-	"github.com/shorstop/shorstop/internal/baseline"
-	"github.com/shorstop/shorstop/internal/classify"
-	"github.com/shorstop/shorstop/internal/crawler"
-	"github.com/shorstop/shorstop/internal/detect"
-	"github.com/shorstop/shorstop/internal/detect/cert"
-	"github.com/shorstop/shorstop/internal/detect/config"
-	"github.com/shorstop/shorstop/internal/rules"
-	"github.com/shorstop/shorstop/internal/settings"
+	"github.com/shorstophq/shorstop/internal/baseline"
+	"github.com/shorstophq/shorstop/internal/classify"
+	"github.com/shorstophq/shorstop/internal/crawler"
+	"github.com/shorstophq/shorstop/internal/detect"
+	"github.com/shorstophq/shorstop/internal/detect/cert"
+	"github.com/shorstophq/shorstop/internal/detect/config"
+	"github.com/shorstophq/shorstop/internal/rules"
+	"github.com/shorstophq/shorstop/internal/settings"
 )
 
 // scanOptions are the scan command's flags.

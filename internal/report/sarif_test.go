@@ -12,11 +12,11 @@ import (
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
 
-	"github.com/shorstop/shorstop/internal/crawler"
-	"github.com/shorstop/shorstop/internal/detect"
-	"github.com/shorstop/shorstop/internal/detect/cert"
-	"github.com/shorstop/shorstop/internal/detect/config"
-	"github.com/shorstop/shorstop/internal/rules"
+	"github.com/shorstophq/shorstop/internal/crawler"
+	"github.com/shorstophq/shorstop/internal/detect"
+	"github.com/shorstophq/shorstop/internal/detect/cert"
+	"github.com/shorstophq/shorstop/internal/detect/config"
+	"github.com/shorstophq/shorstop/internal/rules"
 )
 
 func sarifSchema(t *testing.T) *jsonschema.Schema {

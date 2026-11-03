@@ -14,8 +14,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/shorstop/shorstop/internal/detect"
-	"github.com/shorstop/shorstop/internal/report"
+	"github.com/shorstophq/shorstop/internal/detect"
+	"github.com/shorstophq/shorstop/internal/report"
 )
 
 // Baseline counts the findings of a previous scan by fingerprint.

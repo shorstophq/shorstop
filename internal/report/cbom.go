@@ -17,9 +17,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shorstop/shorstop/internal/classify"
-	"github.com/shorstop/shorstop/internal/detect"
-	"github.com/shorstop/shorstop/pkg/cbom"
+	"github.com/shorstophq/shorstop/internal/classify"
+	"github.com/shorstophq/shorstop/internal/detect"
+	"github.com/shorstophq/shorstop/pkg/cbom"
 )
 
 // CBOMOptions are the parts of a CBOM that don't come from findings.

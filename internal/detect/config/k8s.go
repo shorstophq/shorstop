@@ -11,8 +11,8 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
-	"github.com/shorstop/shorstop/internal/detect"
-	"github.com/shorstop/shorstop/internal/detect/cert"
+	"github.com/shorstophq/shorstop/internal/detect"
+	"github.com/shorstophq/shorstop/internal/detect/cert"
 )
 
 // k8sSecrets reports the certificates and keys inside Kubernetes Secret

@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shorstop/shorstop/internal/detect"
-	"github.com/shorstop/shorstop/internal/report"
+	"github.com/shorstophq/shorstop/internal/detect"
+	"github.com/shorstophq/shorstop/internal/report"
 )
 
 func scan() []detect.Finding {

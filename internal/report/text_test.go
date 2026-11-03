@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shorstop/shorstop/internal/detect"
+	"github.com/shorstophq/shorstop/internal/detect"
 )
 
 func checkGolden(t *testing.T, name string, got []byte) {

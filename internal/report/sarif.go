@@ -12,9 +12,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/shorstop/shorstop/internal/classify"
-	"github.com/shorstop/shorstop/internal/detect"
-	"github.com/shorstop/shorstop/internal/rules"
+	"github.com/shorstophq/shorstop/internal/classify"
+	"github.com/shorstophq/shorstop/internal/detect"
+	"github.com/shorstophq/shorstop/internal/rules"
 )
 
 // Catalog describes rule IDs, for formats that list the rules they report.
@@ -48,7 +48,7 @@ type SARIFOptions struct {
 }
 
 const (
-	informationURI = "https://github.com/shorstop/shorstop"
+	informationURI = "https://github.com/shorstophq/shorstop"
 	FingerprintKey = "shorstop/v1" // partialFingerprints key; baselines read it
 )
 

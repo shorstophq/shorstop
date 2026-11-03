@@ -17,8 +17,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/shorstop/shorstop/internal/detect"
-	"github.com/shorstop/shorstop/internal/rules"
+	"github.com/shorstophq/shorstop/internal/detect"
+	"github.com/shorstophq/shorstop/internal/rules"
 )
 
 // dep is one declared dependency.

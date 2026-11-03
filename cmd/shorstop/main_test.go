@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shorstop/shorstop/pkg/cbom"
+	"github.com/shorstophq/shorstop/pkg/cbom"
 )
 
 func TestRun(t *testing.T) {

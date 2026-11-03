@@ -9,9 +9,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/shorstop/shorstop/internal/detect/cert"
-	"github.com/shorstop/shorstop/internal/detect/config"
-	"github.com/shorstop/shorstop/internal/rules"
+	"github.com/shorstophq/shorstop/internal/detect/cert"
+	"github.com/shorstophq/shorstop/internal/detect/config"
+	"github.com/shorstophq/shorstop/internal/rules"
 )
 
 func newRulesCmd(stdout io.Writer) *cobra.Command {

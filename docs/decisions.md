@@ -1179,7 +1179,12 @@ ShorStop dogfoods its own config. A crypto scanner's source is full of algorithm
 - **Minimum is 1.27, the latest release**, by project-owner decision (2026-10-24). On that date go.dev listed 1.27.3 and 1.26.10 as supported.
 - **Tradeoff:** users on 1.26 can't `go install` without Go downloading 1.27 for them. Prebuilt binaries aren't affected. In return, any 1.27 feature can be used.
 - **`go 1.27`** is the minimum language/API version required of users. **`toolchain go1.27.3`** only says which Go this repo's builds use: an older local Go downloads it automatically. Bump it with each Go patch release.
-- Dependencies: **`go.uber.org/goleak`** (tests only), **`go.yaml.in/yaml/v3`** (rule pack; see `internal/rules`), **`golang.org/x/crypto`** (OpenSSH key parsing; see `internal/detect/cert`).
+- Dependencies: **`go.uber.org/goleak`** and **`santhosh-tekuri/jsonschema/v6`** (tests only), **`go.yaml.in/yaml/v3`** (rule pack and config; see `internal/rules`, `internal/settings`), **`golang.org/x/crypto`** (OpenSSH key parsing; see `internal/detect/cert`), **`spf13/cobra`** + **`spf13/pflag`** (CLI).
+
+### Module path `github.com/shorstophq/shorstop` (project-owner decision, 2026-11-03)
+- The plan's original module path, under the GitHub owner `shorstop`, couldn't be used: that name belongs to an unrelated user account. It was created in December 2022, with no repositories and no activity since, so there's no confusion risk; but GitHub doesn't release names held by inactive accounts. The owner created the **`shorstophq`** organisation, owned by their personal account; it can move to business terms if a company is formed. The product and binary are still called ShorStop / `shorstop`, the way `cli/cli` publishes `gh`.
+- The path is set before the first release on purpose: once people `go install` a module, renaming it breaks them. It also determines the Docker image (`ghcr.io/shorstophq/shorstop`) and the Action reference (`uses: shorstophq/shorstop@v1`).
+- **`cmd/shorstop/paths_test.go` (`TestNoOldOwnerPath`)** walks the repository and fails if a GitHub or GHCR path under the old owner `shorstop` ever reappears. (This entry describes those paths in words for that reason: when it first spelled them out, the guard failed on it, which is what it's for.) A stray old reference in an install command or import would point users at an account someone else controls: today it gives an error, but it would serve their code if they ever created a matching repository. The old strings are built at run time so the test doesn't match itself, and a check with a planted file confirmed it reports the file and line.
 
 ### `Makefile`
 - `CGO_ENABLED=0`: static binary for `FROM scratch` images, easy cross-compiling.

@@ -13,7 +13,7 @@ import (
 
 	"go.uber.org/goleak"
 
-	"github.com/shorstop/shorstop/internal/detect"
+	"github.com/shorstophq/shorstop/internal/detect"
 )
 
 // TestMain fails the package's tests if any goroutine is still running after

@@ -15,8 +15,8 @@ import (
 	"path"
 	"strings"
 
-	"github.com/shorstop/shorstop/internal/detect"
-	"github.com/shorstop/shorstop/internal/rules"
+	"github.com/shorstophq/shorstop/internal/detect"
+	"github.com/shorstophq/shorstop/internal/rules"
 )
 
 // Name is the detector's name.

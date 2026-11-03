@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shorstop/shorstop/internal/detect"
-	"github.com/shorstop/shorstop/internal/rules"
+	"github.com/shorstophq/shorstop/internal/detect"
+	"github.com/shorstophq/shorstop/internal/rules"
 )
 
 var update = flag.Bool("update", false, "rewrite the .golden files from the current output")

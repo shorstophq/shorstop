@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shorstop/shorstop/internal/detect"
+	"github.com/shorstophq/shorstop/internal/detect"
 )
 
 func TestApply(t *testing.T) {

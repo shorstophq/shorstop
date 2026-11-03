@@ -6,8 +6,8 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/shorstop/shorstop/internal/classify"
-	"github.com/shorstop/shorstop/internal/detect"
+	"github.com/shorstophq/shorstop/internal/classify"
+	"github.com/shorstophq/shorstop/internal/detect"
 )
 
 // TableOptions control the terminal report.

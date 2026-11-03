@@ -7,12 +7,12 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/shorstop/shorstop/internal/crawler"
-	"github.com/shorstop/shorstop/internal/detect"
-	"github.com/shorstop/shorstop/internal/detect/cert"
-	"github.com/shorstop/shorstop/internal/detect/config"
-	"github.com/shorstop/shorstop/internal/report"
-	"github.com/shorstop/shorstop/internal/rules"
+	"github.com/shorstophq/shorstop/internal/crawler"
+	"github.com/shorstophq/shorstop/internal/detect"
+	"github.com/shorstophq/shorstop/internal/detect/cert"
+	"github.com/shorstophq/shorstop/internal/detect/config"
+	"github.com/shorstophq/shorstop/internal/report"
+	"github.com/shorstophq/shorstop/internal/rules"
 )
 
 // renderEnv is what a renderer needs besides the result.

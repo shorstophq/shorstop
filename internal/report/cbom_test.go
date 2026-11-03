@@ -15,15 +15,15 @@ import (
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
 
-	"github.com/shorstop/shorstop/internal/crawler"
-	"github.com/shorstop/shorstop/internal/detect"
-	"github.com/shorstop/shorstop/internal/detect/cert"
-	"github.com/shorstop/shorstop/internal/detect/config"
-	"github.com/shorstop/shorstop/internal/detect/deps"
-	"github.com/shorstop/shorstop/internal/detect/goast"
-	"github.com/shorstop/shorstop/internal/detect/regex"
-	"github.com/shorstop/shorstop/internal/rules"
-	"github.com/shorstop/shorstop/pkg/cbom"
+	"github.com/shorstophq/shorstop/internal/crawler"
+	"github.com/shorstophq/shorstop/internal/detect"
+	"github.com/shorstophq/shorstop/internal/detect/cert"
+	"github.com/shorstophq/shorstop/internal/detect/config"
+	"github.com/shorstophq/shorstop/internal/detect/deps"
+	"github.com/shorstophq/shorstop/internal/detect/goast"
+	"github.com/shorstophq/shorstop/internal/detect/regex"
+	"github.com/shorstophq/shorstop/internal/rules"
+	"github.com/shorstophq/shorstop/pkg/cbom"
 )
 
 var update = flag.Bool("update", false, "rewrite the .golden files from the current output")

@@ -6,8 +6,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/shorstop/shorstop/internal/classify"
-	"github.com/shorstop/shorstop/internal/detect"
+	"github.com/shorstophq/shorstop/internal/classify"
+	"github.com/shorstophq/shorstop/internal/detect"
 )
 
 // rated is a finding with its rating.

@@ -9,7 +9,7 @@ package classify
 import (
 	"fmt"
 
-	"github.com/shorstop/shorstop/internal/detect"
+	"github.com/shorstophq/shorstop/internal/detect"
 )
 
 // Status is a finding's risk class.
