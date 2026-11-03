@@ -32,6 +32,9 @@ type CBOMOptions struct {
 
 const projectRef = "project"
 
+// fpRefPrefix starts an occurrence bom-ref that carries a fingerprint.
+const fpRefPrefix = "shorstop:fp:"
+
 // CBOM builds a CycloneDX 1.6 BOM from findings.
 //
 // Findings are grouped into components: one per distinct algorithm (by
@@ -152,13 +155,22 @@ func (b *builder) get(ref string, c cbom.Component, rating classify.Result) *ent
 	return e
 }
 
-// seen records that f is evidence for e.
-func (e *entry) seen(f detect.Finding) {
+// seen records that f is evidence for e, and makes the occurrence f's
+// fingerprint holder: each finding has exactly one, so a baseline read from
+// the CBOM counts every finding once.
+func (e *entry) seen(f detect.Finding) { e.see(f, true) }
+
+// see is seen; withRef false records the place without the fingerprint,
+// for a finding already counted on another component.
+func (e *entry) see(f detect.Finding, withRef bool) {
 	ctx := f.RuleID
 	if f.Snippet != "" {
 		ctx += ": " + f.Snippet
 	}
 	o := cbom.Occurrence{Location: f.File, Line: f.Line, AdditionalContext: ctx}
+	if withRef {
+		o.BOMRef = fpRefPrefix + Fingerprint(f) // numbered in component()
+	}
 	if !slices.Contains(e.occs, o) {
 		e.occs = append(e.occs, o)
 	}
@@ -180,6 +192,16 @@ func (e *entry) component() cbom.Component {
 		slices.SortFunc(occs, func(a, b cbom.Occurrence) int {
 			return cmp.Or(cmp.Compare(a.Location, b.Location), cmp.Compare(a.Line, b.Line), cmp.Compare(a.AdditionalContext, b.AdditionalContext))
 		})
+		// Identical findings (same file, rule and line text) share a
+		// fingerprint; number them so every bom-ref is unique. Numbering after
+		// sorting keeps it independent of scan order.
+		n := map[string]int{}
+		for i := range occs {
+			if occs[i].BOMRef != "" {
+				n[occs[i].BOMRef]++
+				occs[i].BOMRef += "#" + strconv.Itoa(n[occs[i].BOMRef])
+			}
+		}
 		c.Evidence = &cbom.Evidence{Occurrences: occs}
 	}
 	r := e.rating
@@ -292,7 +314,10 @@ func (b *builder) certificate(f detect.Finding, sig certSig) {
 		props.NotValidAfter = c.NotAfter.UTC().Format(time.RFC3339)
 	}
 	if f.Algorithm != "" {
-		props.SubjectPublicKeyRef = b.algorithm(f, true)
+		// The key's algorithm is used at this place too, but the finding's
+		// fingerprint belongs to the certificate's occurrence (below).
+		props.SubjectPublicKeyRef = b.algorithm(f, false)
+		b.comps[props.SubjectPublicKeyRef].see(f, false)
 	}
 	rating := classify.Classify(f)
 	if sig.alg != nil {

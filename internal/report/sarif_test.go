@@ -173,11 +173,11 @@ func TestFingerprintIgnoresLine(t *testing.T) {
 	f := detect.Finding{RuleID: "go-md5-import", Algorithm: "MD5", File: "a.go", Line: 3, Snippet: `"crypto/md5"`}
 	g := f
 	g.Line = 40
-	if fingerprint(f) != fingerprint(g) {
+	if Fingerprint(f) != Fingerprint(g) {
 		t.Error("fingerprint depends on the line number")
 	}
 	g.File = "b.go"
-	if fingerprint(f) == fingerprint(g) {
+	if Fingerprint(f) == Fingerprint(g) {
 		t.Error("fingerprint ignores the file")
 	}
 }

@@ -110,6 +110,10 @@ type Evidence struct {
 
 // Occurrence is one place a component was found.
 type Occurrence struct {
+	// BOMRef is "shorstop:fp:<fingerprint>#<n>": the finding's
+	// line-independent fingerprint, numbered when one file has several
+	// identical findings. Baselines match on it.
+	BOMRef            string `json:"bom-ref,omitempty"`
 	Location          string `json:"location"`       // slash-separated path in the scanned tree
 	Line              int    `json:"line,omitempty"` // 1-based; absent for binary files
 	AdditionalContext string `json:"additionalContext,omitempty"`

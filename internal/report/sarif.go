@@ -49,7 +49,7 @@ type SARIFOptions struct {
 
 const (
 	informationURI = "https://github.com/shorstop/shorstop"
-	fingerprintKey = "shorstop/v1"
+	FingerprintKey = "shorstop/v1" // partialFingerprints key; baselines read it
 )
 
 // SARIF types: the subset of SARIF 2.1.0 ShorStop writes.
@@ -185,7 +185,7 @@ func WriteSARIF(w io.Writer, fs []detect.Finding, opts SARIFOptions) error {
 			Level:               sarifLevel(r.Severity),
 			Message:             sarifText{Text: message(f, r)},
 			Locations:           []sarifLocation{location(f)},
-			PartialFingerprints: map[string]string{fingerprintKey: fingerprint(f)},
+			PartialFingerprints: map[string]string{FingerprintKey: Fingerprint(f)},
 			Properties: sarifResultProps{
 				Status: string(r.Status), Severity: string(r.Severity), Confidence: f.Confidence,
 				Asset: assetLabel(f), PURL: f.PURL,
@@ -295,9 +295,9 @@ func location(f detect.Finding) sarifLocation {
 	return sarifLocation{PhysicalLocation: p}
 }
 
-// fingerprint identifies a finding across scans without its line number:
+// Fingerprint identifies a finding across scans without its line number:
 // rule, file, what was found and the trimmed source line.
-func fingerprint(f detect.Finding) string {
+func Fingerprint(f detect.Finding) string {
 	h := sha256.Sum256([]byte(strings.Join([]string{
 		f.RuleID, f.File, f.Algorithm, strconv.Itoa(f.KeySize), f.Mode, f.ParameterSet,
 		f.MaterialType, f.Protocol, f.PURL, f.Snippet,

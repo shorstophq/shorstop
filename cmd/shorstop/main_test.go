@@ -45,12 +45,20 @@ func TestRun(t *testing.T) {
 		wantStdout string
 	}{
 		{"version flag", []string{"--version"}, exitOK, "shorstop v0.0.1\n"},
-		{"version single dash", []string{"-version"}, exitOK, "shorstop v0.0.1\n"},
+		{"version shorthand", []string{"-v"}, exitOK, "shorstop v0.0.1\n"},
 		{"version subcommand", []string{"version"}, exitOK, "shorstop v0.0.1\n"},
-		{"help", []string{"-h"}, exitOK, ""},
+		// GNU-style flags since the move to cobra: -version is -v -e -r ...
+		{"single-dash long flag", []string{"-version"}, exitError, ""},
+		{"help", []string{"-h"}, exitOK, "<help>"},
+		{"scan help", []string{"scan", "--help"}, exitOK, "<help>"},
 		{"unknown flag", []string{"--nope"}, exitError, ""},
 		{"unexpected argument", []string{"--dir", dir, "extra"}, exitError, ""},
+		{"unknown command", []string{"scna"}, exitError, ""},
 		{"list files", []string{"--dir", dir, "--list-files", "--max-file-size", "1KB"}, exitOK, listed},
+		{"scan subcommand, dir argument", []string{"scan", dir, "--list-files", "--max-file-size", "1KB"}, exitOK, listed},
+		{"dir given twice", []string{"scan", dir, "--dir", "/elsewhere"}, exitError, ""},
+		{"bad fail-on", []string{"--dir", dir, "--fail-on", "severe"}, exitError, ""},
+		{"missing baseline", []string{"--dir", dir, "--baseline", filepath.Join(dir, "nope.sarif")}, exitError, ""},
 		{"exclude", []string{"--dir", dir, "--list-files", "--max-file-size", "1KB", "--exclude", "sub/", "--exclude", ".gitignore"}, exitOK, "a.go\n"},
 		{"bad size", []string{"--dir", dir, "--max-file-size", "2XB"}, exitError, ""},
 		{"zero workers", []string{"--dir", dir, "--workers", "0"}, exitError, ""},
@@ -65,10 +73,91 @@ func TestRun(t *testing.T) {
 			if code != tt.wantCode {
 				t.Errorf("exit code = %d, want %d (stderr: %q)", code, tt.wantCode, stderr.String())
 			}
-			if stdout.String() != tt.wantStdout {
+			if tt.wantStdout == "<help>" {
+				if !strings.Contains(stdout.String(), "Usage:") || !strings.Contains(stdout.String(), "--fail-on") {
+					t.Errorf("help not on stdout: %q", stdout.String())
+				}
+			} else if stdout.String() != tt.wantStdout {
 				t.Errorf("stdout = %q, want %q", stdout.String(), tt.wantStdout)
 			}
 		})
+	}
+}
+
+func TestFailOnSuppressAndBaseline(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, content string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("app.py", "import hashlib\nh = hashlib.md5(b)\nkey = RSA.generate(2048)  # shorstop:ignore py-pycryptodome-rsa-generate reason=\"vendor API\"\n")
+	scan := func(args ...string) (int, string, string) {
+		var stdout, stderr bytes.Buffer
+		code := run(context.Background(), append([]string{"--dir", dir}, args...), &stdout, &stderr)
+		return code, stdout.String(), stderr.String()
+	}
+
+	// MD5 is critical; the RSA line is suppressed.
+	code, out, _ := scan("--fail-on", "high")
+	if code != exitFindings || !strings.Contains(out, "1 findings · 1 critical · 1 suppressed") {
+		t.Errorf("fail-on high: code %d, out:\n%s", code, out)
+	}
+	if code, _, _ := scan("--fail-on", "none"); code != exitOK {
+		t.Errorf("fail-on none: code %d", code)
+	}
+
+	// A baseline made from this scan makes the MD5 finding known: nothing new.
+	sarif := filepath.Join(dir, "base.sarif")
+	if code, _, _ := scan("--format", "sarif", "--output", sarif); code != exitOK {
+		t.Fatalf("writing the baseline: code %d", code)
+	}
+	code, out, _ = scan("--baseline", sarif, "--fail-on", "low")
+	if code != exitOK || !strings.Contains(out, "0 findings · 1 suppressed · 1 in baseline") {
+		t.Errorf("with baseline: code %d, out:\n%s", code, out)
+	}
+
+	// A new problem is reported despite the baseline.
+	write("new.py", "import hashlib\nhashlib.sha1(x)\n")
+	code, out, stderr := scan("--baseline", sarif, "--fail-on", "critical")
+	if code != exitFindings || !strings.Contains(out, "SHA-1") || strings.Contains(out, "MD5") ||
+		!strings.Contains(stderr, "1 findings at or above critical") {
+		t.Errorf("new finding: code %d, out:\n%s\nstderr: %s", code, out, stderr)
+	}
+
+	// The CBOM keeps every finding, suppressed and baselined included.
+	_, out, _ = scan("--format", "json", "--baseline", sarif)
+	var bom cbom.BOM
+	if err := json.Unmarshal([]byte(out), &bom); err != nil {
+		t.Fatal(err)
+	}
+	names := map[string]bool{}
+	for _, c := range bom.Components {
+		names[c.Name] = true
+	}
+	if !names["MD5"] || !names["RSA-2048"] || !names["SHA-1"] {
+		t.Errorf("CBOM should list all three assets, got %v", names)
+	}
+}
+
+func TestRulesList(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"rules", "list"}, &stdout, &stderr); code != exitOK {
+		t.Fatalf("code %d, stderr %q", code, stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{"ID  ", "go-rsa-import", "private-key-committed", "tls-protocol-version", "dep-npm-node-forge"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("rules list lacks %q", want)
+		}
+	}
+	stdout.Reset()
+	if code := run(context.Background(), []string{"rules", "list", "--detector", "cert"}, &stdout, &stderr); code != exitOK || strings.Contains(stdout.String(), "go-rsa-import") || !strings.Contains(stdout.String(), "6 rules") {
+		t.Errorf("--detector cert: code %d\n%s", code, stdout.String())
+	}
+	if code := run(context.Background(), []string{"rules", "list", "--detector", "nope"}, &stdout, &stderr); code != exitError {
+		t.Errorf("unknown detector: code %d", code)
 	}
 }
 

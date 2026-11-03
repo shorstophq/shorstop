@@ -39,6 +39,7 @@
       "evidence": {
         "occurrences": [
           {
+            "bom-ref": "shorstop:fp:29ea4af6380f9a64c4a116bc5aec2087#1",
             "location": "b.js",
             "line": 2,
             "additionalContext": "generic-aes-cipher-string"
@@ -87,6 +88,7 @@
       "evidence": {
         "occurrences": [
           {
+            "bom-ref": "shorstop:fp:d5de56c9c0ffe713cb36e22c83ac52c0#1",
             "location": "nginx.conf",
             "line": 8,
             "additionalContext": "tls-group"
@@ -132,11 +134,13 @@
       "evidence": {
         "occurrences": [
           {
+            "bom-ref": "shorstop:fp:2c32d9769a78c5bea143866609268f6d#1",
             "location": "README.md",
             "line": 3,
             "additionalContext": "generic-rsa-bits: rsa:2048"
           },
           {
+            "bom-ref": "shorstop:fp:344dcc5644ee806ff358879b80bba170#1",
             "location": "a.go",
             "line": 10,
             "additionalContext": "go-rsa-generate-key: rsa.GenerateKey(r, 2048)"
@@ -189,6 +193,7 @@
       "evidence": {
         "occurrences": [
           {
+            "bom-ref": "shorstop:fp:246a92be01797444ec3a0696854470d8#1",
             "location": "ca.pem",
             "line": 1,
             "additionalContext": "cert-signature"
@@ -266,6 +271,7 @@
       "evidence": {
         "occurrences": [
           {
+            "bom-ref": "shorstop:fp:2fb6e36bd83ce47deb83dd6fc0a3ab5e#1",
             "location": "ca.pem",
             "line": 1,
             "additionalContext": "cert-signature-hash"
@@ -318,6 +324,7 @@
       "evidence": {
         "occurrences": [
           {
+            "bom-ref": "shorstop:fp:5aabf0d438b04191c6d82aa8099bd50d#1",
             "location": "ca.pem",
             "line": 1,
             "additionalContext": "cert-public-key"
@@ -371,6 +378,7 @@
       "evidence": {
         "occurrences": [
           {
+            "bom-ref": "shorstop:fp:48a8d4385439706c4624ce99bce15da9#1",
             "location": "k.key",
             "line": 1,
             "additionalContext": "private-key-committed: -----BEGIN RSA PRIVATE KEY-----"
@@ -418,6 +426,7 @@
       "evidence": {
         "occurrences": [
           {
+            "bom-ref": "shorstop:fp:d5ed528f2040dad7d872fe18c20c8609#1",
             "location": "nginx.conf",
             "line": 5,
             "additionalContext": "tls-protocol-version"
@@ -459,6 +468,7 @@
       "evidence": {
         "occurrences": [
           {
+            "bom-ref": "shorstop:fp:f78c00e3358d9eb53b0e0078094a193b#1",
             "location": "package.json",
             "line": 5,
             "additionalContext": "dep-npm-node-forge"
@@ -501,11 +511,13 @@
       "evidence": {
         "occurrences": [
           {
+            "bom-ref": "shorstop:fp:c3a07f01423dd76c8566c2b7220191bc#1",
             "location": "package-lock.json",
             "line": 9,
             "additionalContext": "dep-npm-node-rsa"
           },
           {
+            "bom-ref": "shorstop:fp:d6ab553fb4467862886589feb4484691#1",
             "location": "package.json",
             "line": 4,
             "additionalContext": "dep-npm-node-rsa"

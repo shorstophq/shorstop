@@ -41,6 +41,9 @@ func (b *byteSize) Set(s string) error {
 	return nil
 }
 
+// Type names the value in --help (pflag.Value).
+func (b *byteSize) Type() string { return "size" }
+
 func (b *byteSize) String() string {
 	n := int64(*b)
 	switch {
@@ -63,3 +66,6 @@ func (l *stringList) Set(s string) error {
 }
 
 func (l *stringList) String() string { return strings.Join(*l, ",") }
+
+// Type names the value in --help (pflag.Value).
+func (l *stringList) Type() string { return "pattern" }

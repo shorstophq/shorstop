@@ -568,6 +568,39 @@ Indented JSON, with HTML escaping off (snippets keep `<`, `>` and `&` readable).
 - **`TestCBOMOfAllFixturesIsValid`** scans every fixture in the repository with all five detectors, renders the CBOM, validates it, and checks that every asset type is present. Any finding any detector can produce is therefore checked against the schema. The 1.3 MB CBOM of Go's source tree was also validated once by hand.
 - **`TestCBOMGolden`** (`testdata/report/cbom.golden.json`): exact output for one finding of each kind, so changes to the CBOM's shape show up as diffs. **`TestCBOMIsDeterministic`**, **`TestCBOMSemantics`** (grouping, compromised keys, certificate refs and rating, library version and provides, protocol version, mode mapping, NIST level), and **`TestHelpers`**.
 
+## `internal/detect/detect.go` — `Suppression` (Phase 5)
+`Finding.Suppression *Suppression{Reason, Line}`, set by the crawler when a `shorstop:ignore` comment covers the finding. It's a pointer, so the common case (not suppressed) costs 8 bytes, and the reason and the comment's line travel with the finding for reports that want to show *why* something was accepted. The finding isn't deleted, because the CBOM keeps it.
+
+## `internal/suppress/suppress.go` (Phase 5)
+
+### Syntax: `shorstop:ignore [rule-id[,rule-id…]] [reason="…"]`
+- The plan's form (`// shorstop:ignore go-rsa-import reason="legacy partner API"`), **in any comment style**. The marker is found as text, so `//`, `#`, `--`, `;`, `/* */` and `<!-- -->` all work without a per-language comment parser. *Tradeoff:* the marker inside a string literal also counts. That's harmless in practice, because writing it means someone asked to suppress.
+- **Scope:** the marker's own line, and **the next line when the marker's line is only a comment** (`commentOnly`: the line starts with a comment token). A trailing marker on a line of code therefore doesn't silently also hide the next line's findings; the test has that case.
+- **Rule IDs are comma-separated; none means every rule on the line**, like `//nolint` and `# noqa`. A reason is optional (`reason="…"`, `'…'` or a bare word) but recorded.
+- `shorstop:ignored` or `shorstop:ignore-foo` aren't markers: the marker must be followed by whitespace or end the line.
+
+### `type marker` / `func parse(line, n)` / `func commentOnly(line)` / `func Apply(content, fs)`
+- `Apply` costs **one `bytes.Contains` for files without the marker** (nearly all), and only then splits lines. **Data structure:** `map[covered line][]marker`, built once per file, so each finding is one map lookup.
+- **Binary files (line 0) are never suppressed**: there's no line to put a comment on.
+- The first matching marker wins, and its reason and line are recorded.
+
+## `internal/baseline/baseline.go` (Phase 5)
+
+### `type Baseline` / `func Load(path)` / `func Parse(data)`
+- The plan's `--baseline`: adopt ShorStop without fixing everything first. **Format:** a previous **SARIF** (`--format sarif`) *or* **CBOM** (`--format json`) output from ShorStop, detected from the content. The plan named `cbom.json`; SARIF is accepted too, because that's the file CI pipelines already keep for GitHub.
+- **Matching is by fingerprint** (`report.Fingerprint`, without the line number), so moving code doesn't make known findings new. SARIF stores it in `partialFingerprints["shorstop/v1"]`. The CBOM now stores it as each occurrence's `bom-ref`, `shorstop:fp:<fingerprint>#<n>` (see `cbom.go`).
+- **Data structure:** `map[fingerprint]count`, a multiset rather than a set: if the baseline had one `crypto/md5` import in a file and the code now has two identical ones, one of them is new.
+- **Format detection:** the CBOM has `bomFormat: "CycloneDX"`, SARIF has `version: "2.1.0"`. `version` is a string in SARIF and a number in CycloneDX, so it's probed as raw JSON. The first version probed it as a string and failed on every CBOM; `TestRoundTrip` caught it. Anything else is an error, not an empty baseline, because a mistyped file would otherwise silently baseline nothing.
+
+### `func (b *Baseline) Split(fs)` / `func (b *Baseline) Len()`
+Walks the findings in order, using up each baseline entry once (on a copy of the counts, so a `Baseline` can be reused). It returns new and known findings in their original order. That's deterministic, because the crawler sorts findings.
+
+## `internal/report` — fingerprints shared by SARIF, the CBOM and baselines (Phase 5)
+- **`Fingerprint` and `FingerprintKey` are exported**, so `internal/baseline` computes exactly the identity the reports wrote.
+- **CBOM occurrences now carry `bom-ref: shorstop:fp:<fingerprint>#<n>`** (`cbom.Occurrence.BOMRef`). *Options:* (a) reconstruct the fingerprint from component fields when reading a CBOM baseline, which is fragile because the component name isn't the raw algorithm; (b) store the fingerprint on the occurrence. **Chose (b):** CycloneDX allows a `bom-ref` on occurrences, and it costs one field.
+  - `bom-ref`s must be unique, but identical findings share a fingerprint, so occurrences are **numbered `#1`, `#2`, … after sorting**, which keeps the numbering independent of scan order (`TestCBOMIsDeterministic` still holds).
+  - **Each finding's fingerprint appears on exactly one occurrence**, so a CBOM baseline counts every finding once. The one finding that lands on two components, a certificate's key (the certificate and its key algorithm), records the fingerprint only on the certificate (`entry.see(f, false)` for the algorithm). On the golden findings, 12 findings give 12 fingerprint refs, all unique.
+
 ## `internal/report/group.go` (added with the terminal and Markdown reporters)
 
 ### `type rated` / `type assetGroup` / `var severities` / `func groupFindings(fs, includeInfo)`
@@ -837,6 +870,7 @@ Returns subexpression *i*'s text from a `FindAllSubmatchIndex` location, if it t
   7. **Detector errors are combined with `errors.Join`** into one per-file error. All detectors still run; one failing doesn't stop the others.
   8. **No buffer pooling (`sync.Pool`) yet.** It would cut allocations, but detectors might keep references to the content, which a pool would then overwrite: a nasty bug. Revisit only if Phase 6 benchmarks show GC pressure.
   9. **Cross-detector duplicates are merged here** with `detect.Dedupe` (added with the config detector), after every detector has run on the file. The crawler is the only place that sees all detectors' findings for one file. Doing it in the reporters would make each of them repeat it, and a later CBOM grouping step would still count one line twice as two occurrences.
+  10. **`shorstop:ignore` comments are applied here** (`suppress.Apply`, Phase 5), after merging and for text files only, because this is the last place that still has the file's content. Doing it in each detector would repeat it five times; doing it after the scan would mean keeping every file's content in memory.
 - **Data structures:** `[]byte` buffers; `[]detect.Detector` filtered per file (`wanted`); `[]error` for joining.
 
 ### `func runDetector(ctx, d, f) ([]Finding, error)`
@@ -968,8 +1002,8 @@ Returns subexpression *i*'s text from a `FindAllSubmatchIndex` location, if it t
 ### Package-level `var version = ""`
 - Must be a `var`, not a `const`, because `-ldflags -X` can only set string variables. Empty means "not set by the build", which tells `resolveVersion` to fall back. A hard-coded version would drift from git tags.
 
-### Constants `exitOK = 0`, `exitError = 2`, `defaultMaxFileSize = 2 << 20`
-- `1` is deliberately unused, reserved for "findings over `--fail-on`" (Phase 5), so CI can tell "your code has RSA" from "the scanner crashed".
+### Constants `exitOK = 0`, `exitFindings = 1`, `exitError = 2`, `defaultMaxFileSize = 2 << 20`
+- The plan's contract: `0` clean, `1` findings over `--fail-on`, `2` usage or scanner error, so CI can tell "your code has RSA" from "the scanner crashed". `1` was reserved, unused, until `--fail-on` existed (Phase 5).
 - Usage errors, runtime errors and **cancellation** all use `2`. The shell convention for Ctrl+C is 130, but the plan's contract defines only 0, 1 and 2. A cancelled scan is an incomplete scan, so it's treated as an error.
 - `2 << 20` = 2 MiB, the plan's default limit.
 
@@ -980,21 +1014,45 @@ Returns subexpression *i*'s text from a `FindAllSubmatchIndex` location, if it t
   - **`context.AfterFunc(ctx, stop)`.** After the first signal, normal signal behaviour is restored, so a **second Ctrl+C kills immediately**. Without this, a hung detector would make the process ignore Ctrl+C entirely.
   - `os.Exit` is called only after `run` returns, so every `defer` inside `run` has already run (output flushed and closed).
 
-### `func run(ctx, args, stdout, stderr) int`
-- **What it does:** parses flags, runs the scan, prints warnings and output, returns an exit code.
-- **Decisions & tradeoffs:**
-  - **Takes a `context.Context`.** Tests can pass a cancelled context to check the cancellation path without sending real signals.
-  - **`io.Writer`s instead of `os.Stdout`.** Tests capture output in a buffer; `--output` just changes the destination.
-  - **Own `flag.NewFlagSet` with `ContinueOnError`.** The global flag set panics with "flag redefined" when tests call `run` repeatedly, and `ExitOnError` would call `os.Exit` from inside the flag package, bypassing our exit codes.
-  - **`-h` returns 0**; asking for help isn't a failure.
-  - **`--workers` default is `runtime.GOMAXPROCS(0)`, not `runtime.NumCPU()` (plan said NumCPU).** Since Go 1.25, `GOMAXPROCS` respects container CPU limits (cgroups). In a CI container limited to 2 CPUs on a 64-core host, `NumCPU` returns 64 and would oversubscribe the CPU. `GOMAXPROCS` returns 2.
-  - **`--format` isn't added yet.** It belongs with the reporters (Phase 4). A flag that accepts `json` but prints text would be misleading.
-  - **No arguments now scans `.`** (default `--dir`), instead of printing usage as in Phase 0. That matches the plan's flag defaults.
-  - **Extra positional arguments are an error** (`shorstop ./src`). Silently ignoring them would scan the wrong directory. A positional directory argument can come with cobra in Phase 5.
-  - **Warnings go to stderr, results to stdout.** `shorstop --list-files | wc -l` and `--format json > cbom.json` (later) stay clean.
-  - **With `--list-files`, the summary moves to stderr**, so stdout holds only paths, one per line, and pipes cleanly into other tools.
-  - **No detectors are registered yet** (`var dets []detect.Detector`). The crawler is fully exercised. Phase 2 only needs to fill in this slice.
-- **Data structures:** `*flag.FlagSet`; pointer results from `fs.Bool`/`fs.String`; custom `flag.Value` types `byteSize` and `stringList`.
+### `func run(ctx, args, stdout, stderr) int` / `type exitCode` (rewritten for cobra, Phase 5)
+- **What it does:** builds the command tree, runs it with `args`, and turns the result into an exit code. It's still the testable entry point, so tests call it with fake args and buffers.
+- **Takes a `context.Context`** (tests pass a cancelled one to check that path) and **`io.Writer`s** instead of `os.Stdout`/`os.Stderr`.
+- **Errors are printed in one place, in one format** (`shorstop: …`). Cobra's own `Error:` lines and usage dumps are silenced (`SilenceErrors`, `SilenceUsage`): a scan failure isn't a usage mistake, and a usage block after "permission denied" buries the message.
+- **`exitCode`** lets a command that has already explained itself (`--fail-on`: "3 findings at or above high") exit 1 without a second message. Every other error → 2. `context.Canceled` → "scan cancelled", 2.
+- **Help (`-h`) exits 0, on stdout**: asking for help isn't a failure, and `shorstop --help | less` works. With the stdlib flag package, usage went to stderr.
+
+### `func newRootCmd(stdout, stderr)` (Phase 5)
+- **CLI library: cobra** (project-owner decision, 2026-11-02), as in the plan: subcommands, generated help, and a free `completion` command for bash/zsh/fish/PowerShell. Runtime dependencies: `spf13/cobra` and `spf13/pflag`, plus `inconshreveable/mousetrap`, which is linked only on Windows.
+- **Commands:** `scan [dir]`, `rules list`, `version`. **Plain `shorstop` scans too** (the root command has the same flags and runs the same scan), so `shorstop --format sarif` and every example written so far keep working. The root takes **no positional arguments**: `shorstop src` would be ambiguous with a subcommand name, so a directory argument belongs to `scan`.
+- **GNU-style flags** (pflag): `--format`, short `-f`/`-o`/`-v`/`-h`. *Breaking change:* single-dash long flags (`-version`) no longer work; pflag reads them as `-v -e -r …`. Nothing has been released, so no one depends on the old form.
+- `--version` / `-v` and `version` print the same `shorstop v1.2.3` line (`SetVersionTemplate`).
+- A flag error ends with `(see 'shorstop --help')` (`SetFlagErrorFunc`) instead of a full usage dump.
+
+### `cmd/shorstop/scan.go` (Phase 5)
+
+#### `type scanOptions` / `func newScanOptions` / `func addScanFlags(cmd, o)` / `var failOnLevels`
+- One options struct per command instance, filled by `addScanFlags`, which both the root and `scan` call, so both define the same flags once.
+- **`--workers` default is `runtime.GOMAXPROCS(0)`, not `runtime.NumCPU()` (plan said NumCPU).** Since Go 1.25, `GOMAXPROCS` respects container CPU limits (cgroups): in a CI container limited to 2 CPUs on a 64-core host, `NumCPU` returns 64 and would oversubscribe the CPU.
+- **`--fail-on`** takes `none` (the default), `critical`, `high`, `medium` or `low`. **Off by default:** a tool that fails a build the first time someone tries it gets uninstalled. CI setups opt in.
+- **`--baseline`** takes a previous SARIF or CBOM output (see `internal/baseline`).
+
+#### `func newScanCmd(stdout, stderr)`
+`scan [dir]` takes an optional directory argument (`shorstop scan src/`). Giving it **and** a different `--dir` is an error rather than a silent choice.
+
+#### `func runScan(ctx, o, stdout, stderr)`
+- **Every option is checked before scanning:** format, `--fail-on`, and **the baseline file is read and parsed first**. A typo, or a bad baseline path in CI, fails in milliseconds, not after a long scan.
+- **After the scan:** suppressed findings (`Finding.Suppression`, set by the crawler) and then baselined findings (`baseline.Split`) are **set aside from what's reported**: the table, SARIF, Markdown and `--fail-on` see only the rest, and the summary counts both (`· 3 suppressed · 40 in baseline`). **The CBOM still gets every finding** (`renderEnv.all`): a CBOM is an inventory, and suppressing a finding doesn't remove the crypto from the code.
+- Suppression is applied before the baseline, so a finding is either suppressed or baselined, never counted twice.
+- Warnings go to stderr, results to stdout; `--list-files` and machine-readable formats send the summary to stderr, so stdout pipes cleanly.
+- **`--fail-on`** is applied last, after the output is written, so CI gets the report *and* the failing exit code.
+
+#### `func countAtOrAbove(fs, threshold)`
+Counts reported findings rated at or above the threshold by `classify.Severity.Rank`; `none` counts nothing.
+
+### `cmd/shorstop/rules_cmd.go` (Phase 5)
+
+#### `func newRulesCmd(stdout)` / `type ruleRow` / `func listRules(w, detector)`
+`shorstop rules list [--detector X]`: **every rule ShorStop can report**, both rule-pack rules and the cert/config detectors' built-in IDs, sorted by ID, with detector, algorithm and description, as a `tabwriter` table with a count (225 today). It's the reference users need to write `shorstop:ignore <rule-id>` comments. An unknown `--detector` is an error rather than an empty list.
 
 ### `func writeOutput(path, stdout, write) error`
 - **What it does:** writes output to a file (`--output`) or to stdout, through a buffer.
@@ -1015,7 +1073,7 @@ Returns subexpression *i*'s text from a `FindAllSubmatchIndex` location, if it t
 - **Machine-readable formats print the summary to stderr**, so `shorstop --format json > cbom.json` gives a clean file, and the user still sees the counts.
 - **`renderCBOM`** fills in what findings don't carry: a random serial number (a CycloneDX serial identifies one BOM *document*, so every run gets a new one), the current time, the tool version, and `projectName(dir)`, the scanned directory's own name (`.` resolves to the working directory's name).
 - **`renderTable`** (the default) writes `report.WriteTable` and then the summary line. **`renderMarkdown`** writes `report.WriteMarkdown`.
-- **`type renderEnv`** (added with the terminal reporter) passes what a renderer needs besides the result: the directory, and whether colour is allowed. It's a struct, so a new need (a terminal width, say) doesn't change every renderer's signature again.
+- **`type renderEnv`** (added with the terminal reporter) passes what a renderer needs besides the result: the directory, and whether colour is allowed. It's a struct, so a new need doesn't change every renderer's signature again. That paid off in Phase 5, which added **`all`** (every finding, for the CBOM) and the **`suppressed`/`baselined`** counts (for the summary) without touching the signatures.
 - **`func useColor(w)`:** colour only when stdout is a **character device** (a terminal) and **`NO_COLOR`** (no-color.org) is unset or empty, and never with `--output`, because a file isn't a terminal. That's the plan's 4a rule. *Option rejected:* `golang.org/x/term`'s `IsTerminal`, a new dependency for a check that `os.File.Stat`'s `ModeCharDevice` already does on every OS we target. CI logs (GitHub Actions) aren't terminals, so they get plain text. A `--color=always` override can come with the Phase 5 flags if anyone asks.
 - **`renderSARIF`** (added with the SARIF reporter) builds the rule catalog from the rule pack plus `cert.RuleDescriptions` and `config.RuleDescriptions`. The catalog is assembled here, in the one place that knows every detector, so `report` doesn't need to know which detectors exist.
 
@@ -1030,10 +1088,10 @@ Returns subexpression *i*'s text from a `FindAllSubmatchIndex` location, if it t
 
 ## `cmd/shorstop/flags.go`
 
-### `type byteSize int64` with `Set` / `String`
+### `type byteSize int64` with `Set` / `String` / `Type`
 - **What it does:** parses `--max-file-size` values like `512KB`, `2MB`, `2 MiB`.
 - **Decisions & tradeoffs:**
-  - **Implements `flag.Value`**, so parsing errors appear as normal flag errors with usage, and the default shows in `-h` as `2MB`, not `2097152`.
+  - **Implements `pflag.Value`** (`Type` added with cobra; it names the value in help: `--max-file-size size`), so parsing errors appear as normal flag errors, and the default shows in `-h` as `2MB`, not `2097152`.
   - **Binary units (1KB = 1024).** This is the common convention for file sizes, and what the plan's "2MB" meant. Both `KB` and `KiB` are accepted, so users don't have to know the distinction. Tradeoff: `KB` technically means 1000 in SI. Documented in the flag help.
   - **Case-insensitive, spaces allowed** (`2 mb`). Typos in CI YAML are common, and leniency costs nothing.
   - **Whole numbers only** (`1.5MB` rejected). Fractional bytes would need rounding rules for no real benefit.
@@ -1042,7 +1100,7 @@ Returns subexpression *i*'s text from a `FindAllSubmatchIndex` location, if it t
 - **Data structures:** a slice of `{suffix, mult}` structs, not a map, because order matters for longest-suffix matching and Go map iteration order is random.
 
 ### `type stringList []string`
-- A repeatable flag: `--exclude a --exclude b`. Repeating is the standard flag-package idiom.
+- A repeatable flag: `--exclude a --exclude b`. Repeating is the standard flag-package idiom. `Type` returns `pattern` for help. Kept instead of pflag's `StringArray`, so the flag's behaviour didn't change in the move to cobra.
 - Comma-separated values aren't split, because a glob may legitimately contain a comma (`{a,b}` style patterns or file names).
 
 ---
@@ -1067,6 +1125,13 @@ Returns subexpression *i*'s text from a `FindAllSubmatchIndex` location, if it t
 
 ### `cmd/shorstop/main_test.go`, `flags_test.go`
 - End-to-end through `run` against a temp tree: flags, `--list-files`, `--exclude`, `--output`, bad sizes, a missing directory, cancellation.
+- Phase 5: help on stdout (root and `scan`), `-v`, a rejected single-dash long flag, an unknown command, `scan <dir>` and a conflicting `--dir`, bad `--fail-on`, a missing baseline, and **`TestFailOnSuppressAndBaseline`**, the whole CI flow end to end:
+  1. `--fail-on high` exits 1, with the suppressed line counted rather than reported.
+  2. The scan's own SARIF, used as a baseline, leaves nothing new and exits 0.
+  3. A newly added SHA-1 is reported and fails the build despite the baseline.
+  4. The CBOM still lists every asset.
+
+  Then **`TestRulesList`** (all detectors present, `--detector` filter, unknown detector).
 - They change the global `version`, so they can't use `t.Parallel()`. Acceptable at this size.
 
 ---

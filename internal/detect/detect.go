@@ -52,6 +52,15 @@ type Finding struct {
 	Snippet      string       // trimmed, max 120 chars; never contains key material
 	Confidence   string       // high (AST/cert), medium (regex), low (string match)
 	Detector     string       // set by the crawler, not the detector
+	Suppression  *Suppression // set by the crawler when a shorstop:ignore comment covers the finding
+}
+
+// Suppression records an inline "shorstop:ignore" comment that covers a
+// finding. Suppressed findings stay in the CBOM (the crypto is still there)
+// but leave alerts, reports and --fail-on.
+type Suppression struct {
+	Reason string // the comment's reason="...", or ""
+	Line   int    // where the comment is
 }
 
 // Finding.AssetType values, named as in CycloneDX 1.6 cryptoProperties.assetType.

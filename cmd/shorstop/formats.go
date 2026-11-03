@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/shorstop/shorstop/internal/crawler"
+	"github.com/shorstop/shorstop/internal/detect"
 	"github.com/shorstop/shorstop/internal/detect/cert"
 	"github.com/shorstop/shorstop/internal/detect/config"
 	"github.com/shorstop/shorstop/internal/report"
@@ -18,6 +19,11 @@ import (
 type renderEnv struct {
 	dir   string // the scanned directory, as given
 	color bool   // the output is a terminal and NO_COLOR is unset
+	// all is every finding, including suppressed and baselined ones: the
+	// CBOM is the full inventory. The result passed alongside holds only
+	// the findings to report.
+	all                   []detect.Finding
+	suppressed, baselined int
 }
 
 // renderFunc writes a scan result in one output format.
@@ -42,7 +48,7 @@ func renderTable(w io.Writer, res *crawler.Result, env renderEnv) error {
 	if err := report.WriteTable(w, res.Findings, report.TableOptions{Color: env.color}); err != nil {
 		return err
 	}
-	_, err := fmt.Fprintln(w, summary(res))
+	_, err := fmt.Fprintln(w, summary(res, env))
 	return err
 }
 
@@ -52,7 +58,7 @@ func renderCBOM(w io.Writer, res *crawler.Result, env renderEnv) error {
 	if err != nil {
 		return err
 	}
-	return report.WriteCBOM(w, report.CBOM(res.Findings, report.CBOMOptions{
+	return report.WriteCBOM(w, report.CBOM(env.all, report.CBOMOptions{
 		ProjectName:  projectName(env.dir),
 		ToolVersion:  resolveVersion(),
 		Timestamp:    time.Now(),

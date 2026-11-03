@@ -15,6 +15,7 @@ import (
 	"sync"
 
 	"github.com/shorstop/shorstop/internal/detect"
+	"github.com/shorstop/shorstop/internal/suppress"
 )
 
 const (
@@ -243,6 +244,11 @@ func scanFile(ctx context.Context, opts Options, dets []detect.Detector, rel str
 	// Two detectors can see the same line (regex and config both read
 	// "Ciphers aes128-ctr"); report it once.
 	r.findings = detect.Dedupe(r.findings)
+	// shorstop:ignore comments need the file's text, which only this
+	// function still has.
+	if !binary {
+		r.findings = suppress.Apply(file.Content, r.findings)
+	}
 	r.err = errors.Join(errs...)
 	return r
 }

@@ -6,15 +6,14 @@ import (
 	"bufio"
 	"context"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"os"
 	"os/signal"
-	"runtime"
 	"runtime/debug"
-	"strings"
 	"syscall"
+
+	"github.com/spf13/cobra"
 
 	"github.com/shorstop/shorstop/internal/crawler"
 	"github.com/shorstop/shorstop/internal/detect"
@@ -32,11 +31,12 @@ import (
 // back to the module version recorded by the Go toolchain.
 var version = ""
 
-// Exit codes. The CLI contract (plan, Phase 5) reserves 1 for "findings over
-// the --fail-on threshold", so usage and runtime errors both use 2.
+// Exit codes, the CLI contract from the plan: 0 clean, 1 findings over the
+// --fail-on threshold, 2 usage or scanner error.
 const (
-	exitOK    = 0
-	exitError = 2
+	exitOK       = 0
+	exitFindings = 1
+	exitError    = 2
 )
 
 const defaultMaxFileSize = 2 << 20
@@ -51,93 +51,68 @@ func main() {
 	os.Exit(code)
 }
 
+// exitCode is returned by a command that has already said what went wrong
+// and only needs the process to exit with code.
+type exitCode struct{ code int }
+
+func (e *exitCode) Error() string { return fmt.Sprintf("exit %d", e.code) }
+
 // run holds all CLI logic so tests can call it with fake args and buffers
-// instead of building and executing the binary.
+// instead of building and executing the binary. It returns the exit code.
 func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("shorstop", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	showVersion := fs.Bool("version", false, "print the version and exit")
-	dir := fs.String("dir", ".", "directory to scan")
-	// GOMAXPROCS, not NumCPU: since Go 1.25 it respects container CPU limits,
-	// so a CI container limited to 2 CPUs on a 64-core host gets 2 workers.
-	workers := fs.Int("workers", runtime.GOMAXPROCS(0), "number of files scanned in parallel")
-	output := fs.String("output", "", "write output to this file instead of stdout")
-	listFiles := fs.Bool("list-files", false, "print the files that would be scanned, one per line")
-	format := fs.String("format", "table", "output format: "+strings.Join(formatNames, ", "))
-	maxFileSize := byteSize(defaultMaxFileSize)
-	fs.Var(&maxFileSize, "max-file-size", "skip files larger than this (e.g. 512KB, 2MB)")
-	var excludes stringList
-	fs.Var(&excludes, "exclude", "gitignore-style pattern to skip, relative to --dir (repeatable)")
-
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return exitOK
-		}
-		return exitError
-	}
-
-	if *showVersion || fs.Arg(0) == "version" {
-		fmt.Fprintf(stdout, "shorstop %s\n", resolveVersion())
+	root := newRootCmd(stdout, stderr)
+	root.SetArgs(args)
+	err := root.ExecuteContext(ctx)
+	var ec *exitCode
+	switch {
+	case err == nil:
 		return exitOK
+	case errors.As(err, &ec):
+		return ec.code
+	case errors.Is(err, context.Canceled):
+		fmt.Fprintln(stderr, "shorstop: scan cancelled")
+	default:
+		fmt.Fprintf(stderr, "shorstop: %v\n", err)
 	}
-	if fs.NArg() > 0 {
-		fmt.Fprintf(stderr, "shorstop: unexpected argument %q\n", fs.Arg(0))
-		fs.Usage()
-		return exitError
-	}
-	// Checked before scanning, so a typo doesn't cost a whole scan.
-	render, ok := formats[*format]
-	if !ok {
-		fmt.Fprintf(stderr, "shorstop: unknown --format %q (want one of: %s)\n", *format, strings.Join(formatNames, ", "))
-		return exitError
-	}
+	return exitError
+}
 
-	opts := crawler.Options{
-		Root:        *dir,
-		Workers:     *workers,
-		MaxFileSize: int64(maxFileSize),
-		Excludes:    excludes,
+// newRootCmd builds the command tree. Plain `shorstop` scans, like
+// `shorstop scan`, so `shorstop --format sarif` keeps working.
+func newRootCmd(stdout, stderr io.Writer) *cobra.Command {
+	rootOpts := newScanOptions()
+	root := &cobra.Command{
+		Use:   "shorstop",
+		Short: "Find cryptography that quantum computers will break, and report it as a CBOM",
+		Long: "ShorStop scans a source tree for cryptography that is broken today or will be broken\n" +
+			"by a quantum computer (RSA, ECC, DH, ...), and reports it as a table, a CycloneDX 1.6\n" +
+			"CBOM, SARIF for code scanning, or Markdown.",
+		Version:       resolveVersion(),
+		Args:          cobra.NoArgs,
+		SilenceErrors: true, // run prints errors in one format
+		SilenceUsage:  true, // a scan failure is not a usage mistake
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runScan(cmd.Context(), rootOpts, stdout, stderr)
+		},
 	}
-	dets, err := detectors()
-	if err != nil {
-		fmt.Fprintf(stderr, "shorstop: loading rules: %v\n", err)
-		return exitError
-	}
-
-	res, err := crawler.Scan(ctx, opts, dets)
-	if err != nil {
-		if errors.Is(err, context.Canceled) {
-			fmt.Fprintln(stderr, "shorstop: scan cancelled")
-		} else {
-			fmt.Fprintf(stderr, "shorstop: %v\n", err)
-		}
-		return exitError
-	}
-	for _, e := range res.Errors {
-		fmt.Fprintf(stderr, "shorstop: warning: %v\n", e)
-	}
-
-	err = writeOutput(*output, stdout, func(w io.Writer) error {
-		if *listFiles {
-			for _, f := range res.Files {
-				if _, err := fmt.Fprintln(w, f); err != nil {
-					return err
-				}
-			}
-			return nil
-		}
-		// Colour only on a terminal: never in --output files or pipes.
-		return render(w, res, renderEnv{dir: *dir, color: *output == "" && useColor(stdout)})
+	root.SetOut(stdout)
+	root.SetErr(stderr)
+	root.SetVersionTemplate("shorstop {{.Version}}\n")
+	root.SetFlagErrorFunc(func(cmd *cobra.Command, err error) error {
+		return fmt.Errorf("%w (see '%s --help')", err, cmd.CommandPath())
 	})
-	if err != nil {
-		fmt.Fprintf(stderr, "shorstop: writing output: %v\n", err)
-		return exitError
-	}
-	// Machine-readable output keeps stdout clean; the summary goes to stderr.
-	if *listFiles || *format != "table" {
-		fmt.Fprintln(stderr, summary(res))
-	}
-	return exitOK
+	addScanFlags(root, rootOpts)
+
+	root.AddCommand(newScanCmd(stdout, stderr), newRulesCmd(stdout), &cobra.Command{
+		Use:   "version",
+		Short: "Print the version",
+		Args:  cobra.NoArgs,
+		RunE: func(*cobra.Command, []string) error {
+			_, err := fmt.Fprintf(stdout, "shorstop %s\n", resolveVersion())
+			return err
+		},
+	})
+	return root
 }
 
 // writeOutput sends output to path, or to stdout when path is empty, through
@@ -182,10 +157,19 @@ func detectors() ([]detect.Detector, error) {
 	}, nil
 }
 
-func summary(res *crawler.Result) string {
+// summary is the one-line scan summary. res.Findings are the findings
+// shown; env says how many more were set aside.
+func summary(res *crawler.Result, env renderEnv) string {
 	s := res.Stats
-	return fmt.Sprintf("Scanned %d files · %d findings%s (skipped: %d ignored, %d too large, %d binary, %d not regular, %d failed) · %d warnings",
-		s.Scanned, len(res.Findings), report.Count(res.Findings), s.Ignored, s.TooLarge, s.Binary, s.NotRegular, s.Failed, len(res.Errors))
+	extra := ""
+	if env.suppressed > 0 {
+		extra += fmt.Sprintf(" · %d suppressed", env.suppressed)
+	}
+	if env.baselined > 0 {
+		extra += fmt.Sprintf(" · %d in baseline", env.baselined)
+	}
+	return fmt.Sprintf("Scanned %d files · %d findings%s%s (skipped: %d ignored, %d too large, %d binary, %d not regular, %d failed) · %d warnings",
+		s.Scanned, len(res.Findings), report.Count(res.Findings), extra, s.Ignored, s.TooLarge, s.Binary, s.NotRegular, s.Failed, len(res.Errors))
 }
 
 func resolveVersion() string {
