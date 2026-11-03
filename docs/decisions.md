@@ -1189,8 +1189,8 @@ ShorStop dogfoods its own config. A crypto scanner's source is full of algorithm
 ### `Makefile`
 - `CGO_ENABLED=0`: static binary for `FROM scratch` images, easy cross-compiling.
 - `-trimpath`: strips local paths from the binary, for privacy and reproducibility.
-- No `-s -w` stripping locally, so panics keep readable stack traces.
-- `lint` and `release-snapshot` print an install hint when the tool is missing.
+- No `-s -w` stripping in `make build`: local binaries keep their symbol table and DWARF, so debuggers (`dlv`) and `go tool nm` work. *Correction:* this entry first said stripping would make panic stack traces unreadable. That's wrong: Go's runtime keeps its own line tables (pclntab), so stripped binaries still print file:line traces. Release builds strip (see `.goreleaser.yaml`).
+- `lint` and `release-snapshot` print an install hint when the tool is missing. `release-snapshot` runs GoReleaser with `--skip=sign,sbom`, because cosign and syft are installed only in the release workflow.
 
 ### `.golangci.yml`
 The `standard` set plus `errorlint`, `misspell`, `unconvert`, `gocritic`. `gosec` is left out for now (it flags every `crypto/md5` and `crypto/sha1` reference, which the detectors must contain on purpose). `testdata/` is excluded.
@@ -1206,7 +1206,26 @@ The `standard` set plus `errorlint`, `misspell`, `unconvert`, `gocritic`. `gosec
 - The repository's own `.shorstop.yaml` excludes `README.md` alongside `docs/`: its examples name algorithms and key-generation commands on purpose.
 
 ### `.github/workflows/ci.yml`
-A matrix of Go 1.27 (floor) and stable. Both are 1.27 today; they'll diverge when 1.28 ships, without editing the file. `permissions: contents: read`. Actions are pinned to major tags; switch to SHA pins before public launch.
+- A matrix of Go 1.27 (floor) and stable. Both are 1.27 today; they'll diverge when 1.28 ships, without editing the file. `permissions: contents: read`.
+- **Every action is pinned to a full commit SHA**, with the release as a comment (`# v7.0.1`), since the repository went public (2026-11-03). A tag like `@v7` can be moved to point at other code, for example by a compromised maintainer account, as happened to `tj-actions/changed-files` in 2025. A commit can't change. *Cost:* updates are manual; Dependabot can raise them as PRs later.
+- Moved to the current majors while pinning (checkout v7, setup-go v7, golangci-lint-action v9). I read the release notes first: the changes are a new Node.js runtime, plus checkout v7 refusing fork PRs under `pull_request_target`. That's a security fix, and CI uses `pull_request`.
+- **golangci-lint itself is pinned to `v2.15.0`**, the version run locally, instead of `latest`, so a new linter release can't fail CI with no change to the code.
+- **`release-check` job:** builds every release platform with GoReleaser (`--snapshot`, no publishing) on every push, so a broken release config, or code that doesn't compile for Windows, fails here rather than on release day.
+- All workflows pass **actionlint** v1.7.12.
+
+### `.goreleaser.yaml` (Phase 5)
+- **Targets:** linux/darwin × amd64/arm64, plus windows/amd64. That's the plan's list; Windows on ARM can be added when someone asks. Archives are `tar.gz` (Windows: `zip`), named `shorstop_<version>_<os>_<arch>`, and contain the binary, `LICENSE` and `README.md`.
+- **Build flags:** `CGO_ENABLED=0` (static, verified with `file`: "statically linked", so it runs on any Linux and in `FROM scratch`), `-trimpath`, and `-s -w`, which makes it a third smaller than the local build (8.5 MB vs 12.7 MB). `-X main.version=v{{ .Version }}` adds the `v`, so a release binary reports the same `v0.1.0` that `go install …@v0.1.0` does.
+- **Reproducible builds:** `mod_timestamp: {{ .CommitTimestamp }}` plus `-trimpath` makes the output depend only on the commit. Verified: two snapshot builds gave byte-identical binaries on all five platforms, so anyone can rebuild a release and compare.
+- **`checksums.txt`** (SHA-256) covers every archive. **SBOMs** (Software Bills of Materials) are made per archive with syft.
+- **Signing: keyless cosign** on `checksums.txt`. In GitHub Actions, cosign gets a short-lived certificate from Sigstore tied to this repository's release workflow (via OIDC), so there is **no signing key to store, rotate or leak**. Signing the checksum file covers every archive, because each archive's hash is in it. The signature is written as a Sigstore bundle (`--bundle`, required since cosign v3). Users verify with `cosign verify-blob --bundle checksums.txt.sigstore.json --certificate-identity-regexp 'https://github.com/shorstophq/shorstop/.*' --certificate-oidc-issuer https://token.actions.githubusercontent.com checksums.txt`.
+- `release.prerelease: auto`: a tag with a suffix (`v0.1.0-rc.1`) becomes a GitHub pre-release. `changelog.use: github` builds the notes from commit messages.
+- Snapshot versions (`0.0.2-snapshot+<commit>`) can't be mistaken for releases.
+
+### `.github/workflows/release.yml` (Phase 5)
+- Runs on a `v*` tag push. **Least privilege:** the workflow grants nothing by default (`permissions: {}`), and the one job asks for `contents: write` (create the release) and `id-token: write` (keyless signing) only.
+- **The tests run again before releasing** (`go vet`, `go test -race`): a tag on a broken commit fails instead of publishing broken binaries.
+- Installs cosign and syft, then runs GoReleaser, all pinned to commit SHAs like CI. The job can publish, so it must run exactly the reviewed code.
 
 ---
 
@@ -1216,4 +1235,6 @@ Apache 2.0, as the plan specifies. Downloaded verbatim from apache.org (sha256 `
 ---
 
 ## Open, not decided
-- CI actions are still pinned to major tags; switch them to SHA pins before public launch.
+- ~~CI actions pinned to major tags~~: done, all workflows are pinned to commit SHAs (2026-11-03).
+- Dependabot (or Renovate) to raise PRs for pinned action and Go module updates.
+- A "hybrid" flag so the classical half of `X25519MLKEM768` isn't rated as quantum-vulnerable.

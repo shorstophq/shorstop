@@ -18,10 +18,11 @@ lint:
 bench:
 	go test -run '^$$' -bench . -benchmem ./...
 
-# Needs .goreleaser.yaml, added in Phase 5.
+# Builds every release archive into dist/ without publishing. Signing and
+# SBOMs need cosign and syft, which only the release workflow installs.
 release-snapshot:
-	@command -v goreleaser >/dev/null || { echo "goreleaser not installed: brew install goreleaser"; exit 1; }
-	goreleaser release --snapshot --clean
+	@command -v goreleaser >/dev/null || { echo "goreleaser not installed: go install github.com/goreleaser/goreleaser/v2@latest"; exit 1; }
+	goreleaser release --snapshot --clean --skip=sign,sbom
 
 clean:
 	rm -rf bin dist

@@ -1,0 +1,71 @@
+# GoReleaser config: builds, archives, checksums, SBOMs and signatures for a
+# tagged release. Runs in .github/workflows/release.yml on a v* tag push.
+# Try it locally (no signing or SBOMs): make release-snapshot
+version: 2
+
+project_name: shorstop
+
+builds:
+  - id: shorstop
+    main: ./cmd/shorstop
+    binary: shorstop
+    env:
+      - CGO_ENABLED=0 # static binaries: run on any Linux, and FROM scratch
+    flags:
+      - -trimpath # no build-machine paths in the binary
+    ldflags:
+      # -s -w drop the symbol table and DWARF (about a third of the size);
+      # stack traces stay readable, the runtime keeps its own line tables.
+      # The version matches what `go install ...@vX.Y.Z` reports.
+      - -s -w -X main.version=v{{ .Version }}
+    # Reproducible builds: file times come from the commit, not the clock.
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    ignore:
+      - goos: windows
+        goarch: arm64
+
+archives:
+  - id: shorstop
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+# A Software Bill of Materials for each archive (needs syft on the runner).
+sboms:
+  - artifacts: archive
+
+# Keyless signing with Sigstore: in GitHub Actions, cosign gets a short-lived
+# certificate for this repository's release workflow through OIDC, so there
+# is no signing key to store or leak. Signing checksums.txt covers every
+# archive, because each archive's hash is in it.
+signs:
+  - cmd: cosign
+    signature: "${artifact}.sigstore.json"
+    args:
+      - sign-blob
+      - "--bundle=${signature}"
+      - "${artifact}"
+      - "--yes"
+    artifacts: checksum
+
+release:
+  # A tag with a suffix (v0.1.0-rc.1) becomes a GitHub pre-release.
+  prerelease: auto
+
+changelog:
+  use: github
+  sort: asc
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot+{{ .ShortCommit }}"
