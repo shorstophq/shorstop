@@ -11,7 +11,7 @@
 # A composite action, not a Docker one: it runs on Linux, macOS and Windows
 # runners, starts in seconds, and installs a verified release binary.
 # Design notes: docs/decisions.md, "action.yml".
-name: ShorStop
+name: ShorStop PQC Scan
 description: Find quantum-vulnerable cryptography and report it to GitHub code scanning (SARIF).
 author: shorstophq
 branding:
