@@ -50,3 +50,6 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Fine-grained token, write access to shorstophq/homebrew-tap only.
+          # While the secret doesn't exist this is empty and the tap is skipped.
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}

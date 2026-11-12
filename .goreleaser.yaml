@@ -5,6 +5,10 @@ version: 2
 
 project_name: shorstop
 
+before:
+  hooks:
+    - sh scripts/completions.sh # completions/shorstop.{bash,zsh,fish}
+
 builds:
   - id: shorstop
     main: ./cmd/shorstop
@@ -36,6 +40,7 @@ archives:
     files:
       - LICENSE
       - README.md
+      - completions/*
 
 checksum:
   name_template: checksums.txt
@@ -99,6 +104,41 @@ docker_signs:
       - sign
       - "${artifact}@${digest}"
       - "--yes"
+
+# Homebrew (macOS and Linux): brew install shorstophq/tap/shorstop.
+# Writes Casks/shorstop.rb to github.com/shorstophq/homebrew-tap. A cask,
+# not a formula: GoReleaser deprecated formulas for prebuilt binaries.
+homebrew_casks:
+  - name: shorstop
+    ids: [shorstop]
+    repository:
+      owner: shorstophq
+      name: homebrew-tap
+      # The workflow's own token can't push to another repository; this is a
+      # fine-grained token with write access to homebrew-tap only.
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Casks
+    homepage: https://github.com/shorstophq/shorstop
+    description: Post-quantum cryptography scanner and CycloneDX CBOM generator
+    license: Apache-2.0
+    # Without the token the tap is skipped instead of failing the release.
+    # "auto": pre-releases (v0.1.0-rc.1) never reach the tap.
+    skip_upload: '{{ if isEnvSet "HOMEBREW_TAP_TOKEN" }}auto{{ else }}true{{ end }}'
+    # The binary isn't notarized by Apple: clear the quarantine flag Homebrew
+    # sets on downloads, or Gatekeeper refuses to run it.
+    hooks:
+      post:
+        install_steps: |
+          on_macos do
+            run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{ .StagedPath }}/shorstop"]
+          end
+    # Pre-generated files from the archive. Not generate_completions_from_
+    # executable: Homebrew runs that before postflight, while the binary is
+    # still quarantined, and macOS kills it.
+    completions:
+      bash: completions/shorstop.bash
+      zsh: completions/shorstop.zsh
+      fish: completions/shorstop.fish
 
 release:
   # A tag with a suffix (v0.1.0-rc.1) becomes a GitHub pre-release.
