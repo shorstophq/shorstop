@@ -59,6 +59,47 @@ signs:
       - "--yes"
     artifacts: checksum
 
+# Multi-platform container image on GitHub's registry, built with buildx from
+# the binaries above. "latest" moves only on a full release, never on a
+# pre-release, so `docker pull ghcr.io/shorstophq/shorstop` is always stable.
+dockers_v2:
+  - id: shorstop
+    ids: [shorstop]
+    images:
+      - ghcr.io/shorstophq/shorstop
+    tags:
+      - "v{{ .Version }}"
+      - "{{ if not .Prerelease }}latest{{ end }}"
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    dockerfile: Dockerfile
+    extra_files:
+      - LICENSE
+    sbom: true # an SBOM attestation attached to the image
+    labels:
+      # Links the GHCR package to this repository (and its README).
+      org.opencontainers.image.source: https://github.com/shorstophq/shorstop
+      org.opencontainers.image.title: shorstop
+      org.opencontainers.image.description: Post-quantum cryptography scanner and CycloneDX CBOM generator
+      org.opencontainers.image.version: "v{{ .Version }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
+      org.opencontainers.image.created: "{{ .CommitDate }}"
+      org.opencontainers.image.licenses: Apache-2.0
+
+# Keyless cosign signature on the image itself, the same way checksums.txt
+# is signed: verify with cosign verify --certificate-identity-regexp
+# 'https://github.com/shorstophq/shorstop/.*' --certificate-oidc-issuer
+# https://token.actions.githubusercontent.com ghcr.io/shorstophq/shorstop:v<version>
+# No `artifacts:` key: the default signs exactly the pushed dockers_v2 images
+# (one multi-platform index per tag, signed by digest).
+docker_signs:
+  - cmd: cosign
+    args:
+      - sign
+      - "${artifact}@${digest}"
+      - "--yes"
+
 release:
   # A tag with a suffix (v0.1.0-rc.1) becomes a GitHub pre-release.
   prerelease: auto
@@ -68,4 +109,5 @@ changelog:
   sort: asc
 
 snapshot:
-  version_template: "{{ incpatch .Version }}-snapshot+{{ .ShortCommit }}"
+  # "-", not "+": the version is also a Docker tag, and tags can't hold "+".
+  version_template: "{{ incpatch .Version }}-snapshot-{{ .ShortCommit }}"
