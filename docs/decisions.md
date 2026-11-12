@@ -1237,6 +1237,33 @@ The `standard` set plus `errorlint`, `misspell`, `unconvert`, `gocritic`. `gosec
 - Installs cosign and syft, then runs GoReleaser, all pinned to commit SHAs like CI. The job can publish, so it must run exactly the reviewed code.
 - **For the image:** `packages: write` (push to ghcr.io), buildx (multi-platform builds and push), and a ghcr login with the workflow's own `GITHUB_TOKEN`. **No QEMU:** the Dockerfile has no `RUN` step, so no arm64 code executes during the build, and QEMU would be one more third-party action in a job that can publish.
 
+### `action.yml` (Phase 5): the GitHub Action
+- **Composite, not Docker.** A Docker container action runs only on Linux runners. It also can't use the image's non-root user, because it must write to `GITHUB_WORKSPACE`, which root owns. It also pulls an image on every run. The composite action works on Linux, macOS and Windows runners (x64 and ARM64; no Windows on ARM build yet), and installs the same release binary users download. *Tradeoff:* it depends on bash being available. Every GitHub-hosted runner has it, Windows through Git Bash.
+- **Minimal use:** `uses: shorstophq/shorstop@v1` after checkout, with `security-events: write`. It scans the repository, writes SARIF and uploads it to code scanning.
+- **Inputs:** `path`, `fail-on` (default `none`, so adopting it never breaks a build on day one; findings still show in the Security tab), `baseline`, `config`, `args` (extra flags, split on whitespace with no quoting, which is enough for flags and globs and avoids an `eval`), `sarif-file`, `upload-sarif`, `category` (keeps several runs apart, e.g. one per directory), `version`, `verify`, `install`. **Outputs:** `version`, `sarif-file`, `exit-code`.
+- **No script injection:** inputs reach the scripts only through `env:`, never interpolated into script text with `${{ }}`. The version must match `vX.Y.Z[-pre]` before it's used in a URL or path.
+- **Scripts in `action/install.sh` and `action/scan.sh`**, not inline YAML, so they can be run and tested locally (with `SHORSTOP_DOWNLOAD_BASE` pointing at a local copy) and linted as shell.
+
+#### `install.sh`
+- Maps `RUNNER_OS`/`RUNNER_ARCH` to GoReleaser's archive names (`shorstop_<version>_<os>_<arch>.tar.gz`, `.zip` on Windows).
+- **`version: latest`** follows the redirect from `/releases/latest` to `/releases/tag/<tag>` with `curl`. That's not an API call, so there's no rate limit and no token. GitHub never counts a pre-release as latest, so before the first full release users must set `version`; the error message says so. *Why not tie the binary to the action's ref (`@v1.2.3` installs v1.2.3)?* `github.action_ref` is unreliable inside composite actions, and `@v1` or a SHA doesn't name a binary anyway. Pinning means setting `version`.
+- **Verification, in order:**
+  1. `cosign verify-blob` on `checksums.txt` with its Sigstore bundle, requiring the **exact** certificate identity `https://github.com/shorstophq/shorstop/.github/workflows/release.yml@refs/tags/<tag>`. That proves the file came from this repository's release workflow, for that tag. The README's manual command uses a regexp; the action can be strict because it knows the tag.
+  2. The archive's SHA-256 against its line in `checksums.txt`. A download that's missing, swapped or tampered with is rejected before it's extracted.
+  `verify: false` skips step 1 only, with a warning. Cosign comes from `sigstore/cosign-installer` (SHA-pinned) only when verification is on.
+- `sha256sum` where present, `shasum -a 256` on macOS. Windows zips are extracted with PowerShell's `Expand-Archive`, because Git Bash's `tar` can't read zip.
+- It installs into `$RUNNER_TEMP/shorstop-<tag>` and adds that directory to `GITHUB_PATH`, so later steps can call `shorstop` too.
+
+#### `scan.sh`
+- Runs `shorstop scan <path> --format sarif --output <file> --fail-on <level>`. The default report location is `$RUNNER_TEMP/shorstop.sarif`, outside the workspace, so it doesn't show up in the repository or in later scans.
+- **Exit codes:** 0 and 1 continue (1 is recorded in `exit-code`), so the report is uploaded even when the threshold is crossed. A last step in `action.yml` then fails the job with an `::error` annotation. Exit code 2 (a usage or scanner error) fails immediately: there's no report to upload.
+- **Subdirectory paths:** SARIF URIs are relative to the scanned directory, but code scanning resolves them against the repository root. For `path: services/api`, `jq` prefixes every `%SRCROOT%` URI with `services/api/`. Leading `./`, a trailing `/`, backslashes and an absolute path inside the workspace are normalised first. A path outside the repository gets a warning and no rewrite. *Note:* a baseline taken from the action's own SARIF for a subdirectory carries the prefix. Make baselines with the CLI in that directory, or scan from the root. A `--path-prefix` CLI flag would remove this step; it's left for later.
+- Bash 3.2 compatible (Apple's `/bin/bash`): under `set -u`, an empty array is checked with `${#extra[@]}` before it's expanded.
+
+#### Tests
+- Run locally (2026-11-12) against the snapshot release, served with `file://`. Tests covered: installing on macOS/amd64 and Linux/arm64 archives; a tampered archive rejected; cosign missing with verify on; Windows ARM rejected; an injection-shaped `version` rejected; `latest` before any release. On the scan side: root, `./subdir/`, absolute workspace path, `fail-on high` (exit-code 1, script exits 0), extra args, a bad flag (exit 2), and a path outside the repo. Both scripts were run under bash 3.2 and 5.
+- **CI `action` job** on ubuntu, macos and windows: it builds a release from the commit in the same layout, installs it through the action with `file://`, and checks the outputs, `shorstop` on PATH, the threshold failure and the URI prefixes. Not covered until the first real release: cosign verification against a real signature, and `latest` resolution.
+
 ---
 
 ### `LICENSE`

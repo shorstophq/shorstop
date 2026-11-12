@@ -55,3 +55,83 @@ jobs:
         with:
           version: "~> v2"
           args: release --snapshot --clean --skip=sign,sbom
+
+  # Runs action.yml on every runner OS. CI has no published release to
+  # download, so it makes one from this commit (the archive and
+  # checksums.txt, laid out like a GitHub release) and points the action at
+  # it with file://. Everything runs as for a user except the cosign check,
+  # which needs a real signed release.
+  action:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Make a local release
+        shell: bash
+        run: |
+          v=0.0.0-ci os=$(go env GOOS) arch=$(go env GOARCH)
+          rel=$RUNNER_TEMP/release stage=$RUNNER_TEMP/stage
+          mkdir -p "$rel/v$v" "$stage"
+          name=shorstop_${v}_${os}_${arch}
+          if [[ $os == windows ]]; then
+            CGO_ENABLED=0 go build -trimpath -ldflags "-X main.version=v$v" -o "$stage/shorstop.exe" ./cmd/shorstop
+            (cd "$stage" && 7z a "$rel/v$v/$name.zip" shorstop.exe >/dev/null)
+            base=file:///$(cygpath -m "$rel")
+          else
+            CGO_ENABLED=0 go build -trimpath -ldflags "-X main.version=v$v" -o "$stage/shorstop" ./cmd/shorstop
+            tar -czf "$rel/v$v/$name.tar.gz" -C "$stage" shorstop
+            base=file://$rel
+          fi
+          cd "$rel/v$v"
+          for f in shorstop_*; do
+            if command -v sha256sum >/dev/null; then h=$(sha256sum <"$f"); else h=$(shasum -a 256 <"$f"); fi
+            printf '%s  %s\n' "${h%% *}" "$f"
+          done >checksums.txt
+          cat checksums.txt
+          echo "SHORSTOP_DOWNLOAD_BASE=$base" >>"$GITHUB_ENV"
+
+      - name: Action, repository root
+        id: root
+        uses: ./
+        with:
+          version: v0.0.0-ci
+          verify: "false"
+          upload-sarif: "false"
+
+      - name: Action, subdirectory over the fail-on threshold
+        id: sub
+        continue-on-error: true
+        uses: ./
+        with:
+          install: "false"
+          path: testdata/fixtures
+          fail-on: high
+          sarif-file: ${{ runner.temp }}/sub.sarif
+          upload-sarif: "false"
+
+      - name: Check the results
+        shell: bash
+        env:
+          ROOT_VERSION: ${{ steps.root.outputs.version }}
+          ROOT_EXIT: ${{ steps.root.outputs.exit-code }}
+          ROOT_SARIF: ${{ steps.root.outputs.sarif-file }}
+          SUB_OUTCOME: ${{ steps.sub.outcome }}
+          SUB_EXIT: ${{ steps.sub.outputs.exit-code }}
+          SUB_SARIF: ${{ runner.temp }}/sub.sarif
+        run: |
+          set -x
+          [[ $ROOT_VERSION == v0.0.0-ci && $ROOT_EXIT == 0 && -s $ROOT_SARIF ]]
+          shorstop version | grep -q 'v0.0.0-ci' # installed on PATH for later steps
+          # The threshold fails the step, after the report was written.
+          [[ $SUB_OUTCOME == failure && $SUB_EXIT == 1 ]]
+          # Paths are prefixed with the scanned directory, so code scanning
+          # resolves them from the repository root.
+          jq -e '[.. | objects | select(.uriBaseId? == "%SRCROOT%") | .uri]
+                 | length > 0 and all(startswith("testdata/fixtures/"))' "$SUB_SARIF"

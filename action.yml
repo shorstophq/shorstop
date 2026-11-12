@@ -1,0 +1,112 @@
+# ShorStop GitHub Action: scan the repository for quantum-vulnerable
+# cryptography and show the findings in the Security tab.
+#
+#   permissions:
+#     contents: read
+#     security-events: write   # upload results to code scanning
+#   steps:
+#     - uses: actions/checkout@v7
+#     - uses: shorstophq/shorstop@v1
+#
+# A composite action, not a Docker one: it runs on Linux, macOS and Windows
+# runners, starts in seconds, and installs a verified release binary.
+# Design notes: docs/decisions.md, "action.yml".
+name: ShorStop
+description: Find quantum-vulnerable cryptography and report it to GitHub code scanning (SARIF).
+author: shorstophq
+branding:
+  icon: shield
+  color: purple
+
+inputs:
+  path:
+    description: Directory to scan, relative to the repository root.
+    default: "."
+  fail-on:
+    description: Fail the step if a finding is at or above this severity (none, critical, high, medium, low). Results are uploaded first.
+    default: none
+  baseline:
+    description: A previous SARIF or CBOM output; only findings not in it are reported.
+    default: ""
+  config:
+    description: Config file. Default is .shorstop.yaml in the scanned directory, if present.
+    default: ""
+  args:
+    description: Extra `shorstop scan` flags, split on whitespace (no shell quoting), e.g. "--exclude vendor/** --rules rules.yaml".
+    default: ""
+  sarif-file:
+    description: Where to write the SARIF report. Default is shorstop.sarif in the runner's temp directory, outside the workspace.
+    default: ""
+  upload-sarif:
+    description: "Upload the report to GitHub code scanning (needs `security-events: write`)."
+    default: "true"
+  category:
+    description: Code scanning category, to keep several ShorStop runs (e.g. one per directory) apart.
+    default: shorstop
+  version:
+    description: ShorStop release to install, e.g. v0.1.0. "latest" is the newest full release (not a pre-release).
+    default: latest
+  verify:
+    description: Verify the release's checksums.txt with its keyless cosign signature before trusting the download.
+    default: "true"
+  install:
+    description: Install ShorStop. Set to false to use a `shorstop` already on PATH.
+    default: "true"
+
+outputs:
+  version:
+    description: The installed ShorStop version (empty when install is false).
+    value: ${{ steps.install.outputs.version }}
+  sarif-file:
+    description: Path of the SARIF report.
+    value: ${{ steps.scan.outputs.sarif-file }}
+  exit-code:
+    description: ShorStop's exit code. 0 clean, 1 findings at or above fail-on.
+    value: ${{ steps.scan.outputs.exit-code }}
+
+runs:
+  using: composite
+  steps:
+    # Inputs reach the scripts only through env, never pasted into the script
+    # text with ${{ }}, so an input can't inject shell commands.
+    - name: Install cosign
+      if: inputs.install == 'true' && inputs.verify == 'true'
+      uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+    - name: Install ShorStop
+      id: install
+      if: inputs.install == 'true'
+      shell: bash
+      env:
+        SHORSTOP_VERSION: ${{ inputs.version }}
+        SHORSTOP_VERIFY: ${{ inputs.verify }}
+      run: '"$GITHUB_ACTION_PATH/action/install.sh"'
+
+    - name: Scan
+      id: scan
+      shell: bash
+      env:
+        SHORSTOP_PATH: ${{ inputs.path }}
+        SHORSTOP_FAIL_ON: ${{ inputs.fail-on }}
+        SHORSTOP_BASELINE: ${{ inputs.baseline }}
+        SHORSTOP_CONFIG: ${{ inputs.config }}
+        SHORSTOP_ARGS: ${{ inputs.args }}
+        SHORSTOP_SARIF: ${{ inputs.sarif-file }}
+      run: '"$GITHUB_ACTION_PATH/action/scan.sh"'
+
+    - name: Upload to code scanning
+      if: inputs.upload-sarif == 'true'
+      uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+      with:
+        sarif_file: ${{ steps.scan.outputs.sarif-file }}
+        category: ${{ inputs.category }}
+
+    # Last, so the results are uploaded even when the threshold fails the job.
+    - name: Check fail-on threshold
+      if: steps.scan.outputs.exit-code == '1'
+      shell: bash
+      env:
+        SHORSTOP_FAIL_ON: ${{ inputs.fail-on }}
+      run: |
+        echo "::error title=ShorStop::findings at or above '$SHORSTOP_FAIL_ON' (see the scan step and the Security tab)"
+        exit 1
