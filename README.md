@@ -12,16 +12,54 @@ rating and the post-quantum replacement to migrate to (ML-KEM, ML-DSA, SLH-DSA).
 
 The name comes from Shor's algorithm, the quantum algorithm that breaks RSA and ECC.
 
-> **Status: pre-release.** The scanner, rules and output formats work and are tested, but
-> there are no binary releases, Docker image or GitHub Action yet. Expect rule IDs and
-> output details to change before `v1.0`.
+> **Status: early release (`v0.x`).** The scanner, rules and output formats work and are
+> tested. Expect rule IDs and output details to change before `v1.0`.
 
-## Quick start
+## Install
 
-ShorStop needs Go 1.27 or newer to install from source:
+**Homebrew** (macOS and Linux):
+
+```sh
+brew install --cask shorstophq/tap/shorstop
+```
+
+**Docker** (linux/amd64 and linux/arm64): the image holds only the binary and runs as a
+non-root user. Mount the directory to scan at `/src`:
+
+```sh
+docker run --rm -v "$PWD:/src:ro" ghcr.io/shorstophq/shorstop
+docker run --rm -v "$PWD:/src:ro" ghcr.io/shorstophq/shorstop scan --format sarif > shorstop.sarif
+```
+
+**Binaries** for Linux and macOS (amd64, arm64) and Windows (amd64) are on the
+[releases page](https://github.com/shorstophq/shorstop/releases). Each release's
+`checksums.txt` is signed with [Sigstore](https://www.sigstore.dev/) by this repository's
+release workflow. There's no key to trust, only the workflow's identity:
+
+```sh
+V=0.1.0 OS=linux ARCH=amd64   # or OS=darwin, ARCH=arm64
+for f in "shorstop_${V}_${OS}_${ARCH}.tar.gz" checksums.txt checksums.txt.sigstore.json; do
+  curl -fsSLO "https://github.com/shorstophq/shorstop/releases/download/v$V/$f"
+done
+cosign verify-blob checksums.txt --bundle checksums.txt.sigstore.json \
+  --certificate-identity "https://github.com/shorstophq/shorstop/.github/workflows/release.yml@refs/tags/v$V" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+shasum -a 256 --ignore-missing -c checksums.txt   # or: sha256sum --ignore-missing -c checksums.txt
+tar -xzf "shorstop_${V}_${OS}_${ARCH}.tar.gz"      # shorstop, plus completions/ for bash, zsh, fish
+```
+
+The image is signed the same way: `cosign verify ghcr.io/shorstophq/shorstop:v0.1.0` with
+the same two `--certificate-*` flags. Every archive also has an SBOM (`.sbom.json`).
+
+**From source** (Go 1.27 or newer):
 
 ```sh
 go install github.com/shorstophq/shorstop/cmd/shorstop@latest
+```
+
+## Quick start
+
+```sh
 shorstop scan .
 ```
 
@@ -110,8 +148,8 @@ shorstop scan . --fail-on high
 
 ### GitHub code scanning
 
-Until the GitHub Action is published, this workflow installs ShorStop with Go and uploads
-SARIF, so findings show up in the **Security** tab and inline on pull requests:
+The ShorStop Action installs a verified release, scans, and uploads SARIF, so findings show
+up in the **Security** tab and inline on pull requests:
 
 ```yaml
 name: shorstop
@@ -121,21 +159,31 @@ permissions:
   security-events: write
 jobs:
   scan:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest   # macOS and Windows runners work too
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
-        with:
-          go-version: stable
-      - run: go install github.com/shorstophq/shorstop/cmd/shorstop@latest
-      - run: shorstop scan . --format sarif --output shorstop.sarif
-      - uses: github/codeql-action/upload-sarif@v4
-        with:
-          sarif_file: shorstop.sarif
+      - uses: shorstophq/shorstop@v0.1.0
 ```
 
-Code scanning is free for public repositories. Private repositories need GitHub Code
-Security.
+Options go under `with:`. All are optional:
+
+| Input | Default | |
+|---|---|---|
+| `path` | `.` | directory to scan, relative to the repository root |
+| `fail-on` | `none` | fail the job at or above this severity; results are uploaded first |
+| `baseline` | | previous SARIF or CBOM; only new findings are reported |
+| `config` | `.shorstop.yaml` in `path` | config file |
+| `args` | | extra `shorstop scan` flags, e.g. `--exclude vendor/**` |
+| `upload-sarif` | `true` | set `false` to only write the report |
+| `sarif-file` | runner temp dir | where to write the report; also the `sarif-file` output |
+| `category` | `shorstop` | code scanning category, to keep several runs apart |
+| `version` | `latest` | ShorStop release to install, e.g. `v0.1.0` |
+| `verify` | `true` | check the release's Sigstore signature before using it |
+
+To pin exactly, use a commit SHA (`uses: shorstophq/shorstop@<sha> # v0.1.0`) and set
+`version`. Code scanning is free for public repositories. Private repositories need GitHub
+Code Security. On pull requests from forks GitHub doesn't allow the upload; scan with
+`upload-sarif: false` there.
 
 ### Adopting on an existing codebase: baselines
 

@@ -3,7 +3,9 @@ name: release
 # Runs when a version tag is pushed: git tag v0.1.0 && git push origin v0.1.0
 on:
   push:
-    tags: ["v*"]
+    # Version tags only (v0.1.0, v0.1.0-rc.1), so a moving major tag such as
+    # v1 for the Action never starts a release.
+    tags: ["v[0-9]+.[0-9]+.[0-9]+*"]
 
 # Nothing by default; the job asks for exactly what it needs.
 permissions: {}
