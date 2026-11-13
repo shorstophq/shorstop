@@ -37,7 +37,7 @@ docker run --rm -v "$PWD:/src:ro" ghcr.io/shorstophq/shorstop scan --format sari
 release workflow. There's no key to trust, only the workflow's identity:
 
 ```sh
-V=0.1.0 OS=linux ARCH=amd64   # or OS=darwin, ARCH=arm64
+V=0.1.1 OS=linux ARCH=amd64   # or OS=darwin, ARCH=arm64
 for f in "shorstop_${V}_${OS}_${ARCH}.tar.gz" checksums.txt checksums.txt.sigstore.json; do
   curl -fsSLO "https://github.com/shorstophq/shorstop/releases/download/v$V/$f"
 done
@@ -48,7 +48,7 @@ shasum -a 256 --ignore-missing -c checksums.txt   # or: sha256sum --ignore-missi
 tar -xzf "shorstop_${V}_${OS}_${ARCH}.tar.gz"      # shorstop, plus completions/ for bash, zsh, fish
 ```
 
-The image is signed the same way: `cosign verify ghcr.io/shorstophq/shorstop:v0.1.0` with
+The image is signed the same way: `cosign verify ghcr.io/shorstophq/shorstop:v0.1.1` with
 the same two `--certificate-*` flags. Every archive also has an SBOM (`.sbom.json`).
 
 **From source** (Go 1.27 or newer):
@@ -162,7 +162,7 @@ jobs:
     runs-on: ubuntu-latest   # macOS and Windows runners work too
     steps:
       - uses: actions/checkout@v7
-      - uses: shorstophq/shorstop@v0.1.0
+      - uses: shorstophq/shorstop@v0.1.1
 ```
 
 Options go under `with:`. All are optional:
@@ -180,7 +180,7 @@ Options go under `with:`. All are optional:
 | `version` | `latest` | ShorStop release to install, e.g. `v0.1.0` |
 | `verify` | `true` | check the release's Sigstore signature before using it |
 
-To pin exactly, use a commit SHA (`uses: shorstophq/shorstop@<sha> # v0.1.0`) and set
+To pin exactly, use a commit SHA (`uses: shorstophq/shorstop@<sha> # v0.1.1`) and set
 `version`. Code scanning is free for public repositories. Private repositories need GitHub
 Code Security. On pull requests from forks GitHub doesn't allow the upload; scan with
 `upload-sarif: false` there.

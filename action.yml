@@ -6,7 +6,7 @@
 #     security-events: write   # upload results to code scanning
 #   steps:
 #     - uses: actions/checkout@v7
-#     - uses: shorstophq/shorstop@v0.1.0
+#     - uses: shorstophq/shorstop@v0.1.1
 #
 # A composite action, not a Docker one: it runs on Linux, macOS and Windows
 # runners, starts in seconds, and installs a verified release binary.
