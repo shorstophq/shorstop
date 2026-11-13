@@ -91,6 +91,9 @@ type (
 	}
 	sarifRuleProps struct {
 		Tags []string `json:"tags"`
+		// The rules.yaml / detector rule ID, without the "/<severity>"
+		// suffix of the SARIF rule ID.
+		Rule string `json:"shorstop:rule"`
 		// GitHub code scanning reads this (0.1-10) to show
 		// Critical/High/Medium/Low for security alerts.
 		SecuritySeverity string `json:"security-severity"`
@@ -151,17 +154,18 @@ func sarifLevel(s classify.Severity) string {
 
 // WriteSARIF writes findings as a SARIF 2.1.0 log with one run.
 //
-// Rules: only those with results are listed. SARIF and GitHub take a rule's
-// security-severity from the rule, not the result, but one rule can find
-// both RSA-1024 (critical) and RSA-4096 (high); the rule carries the worst
-// severity among its results, and each result's level and
-// shorstop:severity property carry its own.
+// Rules: only those with results are listed. SARIF and GitHub take a
+// security-severity from the rule, not the result, but one ShorStop rule can
+// find both RSA-1024 (critical) and RSA-4096 (high). So the SARIF rule is
+// the ShorStop rule plus the severity ("go-rsa-generate-key/critical"), and
+// every alert shows its own severity.
 //
 // Fingerprints don't use the line number, so a finding keeps its identity
 // (and its dismissed/open state in GitHub) when code above it moves.
 func WriteSARIF(w io.Writer, fs []detect.Finding, opts SARIFOptions) error {
 	type ruleAcc struct {
-		worst classify.Result
+		rule  string          // ShorStop rule ID
+		first classify.Result // all results of a SARIF rule share a severity
 		index int
 	}
 	acc := map[string]*ruleAcc{}
@@ -172,16 +176,13 @@ func WriteSARIF(w io.Writer, fs []detect.Finding, opts SARIFOptions) error {
 		if r.Severity == classify.Info && !opts.IncludeInfo {
 			continue
 		}
-		a, ok := acc[f.RuleID]
-		if !ok {
-			a = &ruleAcc{worst: r}
-			acc[f.RuleID] = a
-			ruleIDs = append(ruleIDs, f.RuleID)
-		} else if r.Severity.Rank() > a.worst.Severity.Rank() {
-			a.worst = r
+		id := sarifRuleID(f.RuleID, r.Severity)
+		if _, ok := acc[id]; !ok {
+			acc[id] = &ruleAcc{rule: f.RuleID, first: r}
+			ruleIDs = append(ruleIDs, id)
 		}
 		results = append(results, sarifResult{
-			RuleID:              f.RuleID,
+			RuleID:              id,
 			Level:               sarifLevel(r.Severity),
 			Message:             sarifText{Text: message(f, r)},
 			Locations:           []sarifLocation{location(f)},
@@ -198,19 +199,20 @@ func WriteSARIF(w io.Writer, fs []detect.Finding, opts SARIFOptions) error {
 	for i, id := range ruleIDs {
 		a := acc[id]
 		a.index = i
-		desc := cmp.Or(opts.Catalog[id], "ShorStop rule "+id+".")
+		desc := cmp.Or(opts.Catalog[a.rule], "ShorStop rule "+a.rule+".")
 		help := desc
-		if a.worst.Recommendation != "" {
-			help += "\n\nRecommendation: " + a.worst.Recommendation
+		if a.first.Recommendation != "" {
+			help += "\n\nRecommendation: " + a.first.Recommendation
 		}
 		rulesOut[i] = sarifRule{
 			ID:                   id,
 			ShortDescription:     sarifText{Text: desc},
 			Help:                 sarifHelp{Text: help, Markdown: strings.ReplaceAll(help, "Recommendation:", "**Recommendation:**")},
-			DefaultConfiguration: sarifConfig{Level: sarifLevel(a.worst.Severity)},
+			DefaultConfiguration: sarifConfig{Level: sarifLevel(a.first.Severity)},
 			Properties: sarifRuleProps{
 				Tags:             []string{"security", "cryptography", "post-quantum"},
-				SecuritySeverity: securityScore[a.worst.Severity],
+				Rule:             a.rule,
+				SecuritySeverity: securityScore[a.first.Severity],
 			},
 		}
 	}
@@ -238,6 +240,13 @@ func WriteSARIF(w io.Writer, fs []detect.Finding, opts SARIFOptions) error {
 	enc.SetIndent("", "  ")
 	enc.SetEscapeHTML(false)
 	return enc.Encode(log)
+}
+
+// sarifRuleID is the SARIF rule for a ShorStop rule at one severity:
+// "tls-cipher/low". The suffix is always there, even when a rule only ever
+// finds one severity, so an ID never depends on what else a scan found.
+func sarifRuleID(rule string, sev classify.Severity) string {
+	return rule + "/" + string(sev)
 }
 
 func line(p sarifPhysical) int {

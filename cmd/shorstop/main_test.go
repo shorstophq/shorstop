@@ -344,7 +344,7 @@ func TestRunFormatSARIF(t *testing.T) {
 		t.Fatalf("stdout is not JSON (%v): %q", err, stdout.String())
 	}
 	r := log.Runs[0]
-	if log.Version != "2.1.0" || len(r.Results) != 1 || r.Results[0].RuleID != "py-hashlib-md5" || r.Results[0].Level != "error" {
+	if log.Version != "2.1.0" || len(r.Results) != 1 || r.Results[0].RuleID != "py-hashlib-md5/critical" || r.Results[0].Level != "error" {
 		t.Errorf("unexpected SARIF: %+v", log)
 	}
 	if d := r.Tool.Driver.Rules[0].ShortDescription.Text; !strings.Contains(d, "MD5") {

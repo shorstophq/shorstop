@@ -135,14 +135,18 @@ func TestSARIFSemantics(t *testing.T) {
 	if len(run.Results) != 3 {
 		t.Fatalf("got %d results; info findings (SHA-256) should be left out by default", len(run.Results))
 	}
-	var rsaRule sarifRule
+	// One ShorStop rule, two severities: two SARIF rules, so GitHub shows
+	// RSA-4096 as High, not as Critical like RSA-1024.
+	rules := map[string]sarifRule{}
 	for _, r := range run.Tool.Driver.Rules {
-		if r.ID == "go-rsa-generate-key" {
-			rsaRule = r
-		}
+		rules[r.ID] = r
 	}
-	if rsaRule.Properties.SecuritySeverity != "9.5" || !strings.Contains(rsaRule.Help.Text, "Recommendation:") {
-		t.Errorf("rule should carry the worst severity among its results (RSA-1024, critical): %+v", rsaRule)
+	for id, score := range map[string]string{"go-rsa-generate-key/critical": "9.5", "go-rsa-generate-key/high": "8.0"} {
+		r := rules[id]
+		if r.Properties.SecuritySeverity != score || r.Properties.Rule != "go-rsa-generate-key" ||
+			!strings.Contains(r.Help.Text, "Recommendation:") || r.ShortDescription.Text == "" || strings.HasPrefix(r.ShortDescription.Text, "ShorStop rule") {
+			t.Errorf("rule %s = %+v; want security-severity %s, shorstop:rule, catalog description and help", id, r, score)
+		}
 	}
 	levels := map[int]string{}
 	for _, r := range run.Results {

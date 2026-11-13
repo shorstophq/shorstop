@@ -683,7 +683,13 @@ Unexported and local to the reporter: only ShorStop writes them, and nothing dec
 - **`level`:** critical and high → `error`, medium → `warning`, low → `note`.
 
 ### `func WriteSARIF(w, fs, opts)`
-- **One rule can produce results of different severities** (`go-rsa-generate-key` finds RSA-1024, critical, and RSA-4096, high), but SARIF and GitHub take `security-severity` from the *rule*. *Options:* (a) split rules per severity (`go-rsa-generate-key/critical`), which would break the link to `rules.yaml` and to suppressions; (b) give the rule its **worst** severity among this run's results, and give each result its own `level` and `shorstop:severity`. **Chose (b):** a rule is as urgent as the worst thing it found.
+- **One rule can produce results of different severities** (`go-rsa-generate-key` finds RSA-1024, critical, and RSA-4096, high), but SARIF and GitHub take `security-severity` from the *rule*. *Options:* (a) split rules per severity (`go-rsa-generate-key/critical`); (b) give the rule its **worst** severity among this run's results, and give each result its own `level` and `shorstop:severity`.
+  - **v0.1.0 shipped (b). v0.1.1 switches to (a)** (`sarifRuleID`). The v0.1.0 demo repo (`shorstophq/shorstop-demo`) showed 6 of 20 alerts at the wrong severity in the Security tab. One nginx `ssl_ciphers` line enables 3DES (critical), so its HMAC-SHA-1 (low), AES-128 (medium) and RSA/ECDH key exchange (high) alerts were all labelled Critical, and so was an RSA-2048 key next to an RSA-1024 one. Real cipher strings almost always mix strong and weak algorithms, and a "Critical" label next to HMAC-SHA-1 teaches people to stop trusting the labels.
+  - Reasons given against (a) earlier, rechecked: suppressions (`shorstop:ignore <rule>`) are written in the source with the detector's rule ID and never see the SARIF ID; the link to `rules.yaml` is kept as the ID's prefix and as the rule's `shorstop:rule` property; the catalog description and help are looked up by that plain ID.
+  - **The suffix is always added**, even for a rule that only finds one severity, so a rule's ID never depends on what else the scan found.
+  - **Baselines are unaffected:** they match on `partialFingerprints`, which use the detector rule ID, not the SARIF one. A v0.1.0 SARIF used as `--baseline` still hides every known finding (checked on the demo repo).
+  - **Cost:** GitHub keys alerts by rule ID and fingerprint, so after the upgrade existing alerts close once and reopen under the new IDs, and earlier dismissals are lost. Acceptable while the only user is our own demo repo.
+  - A severity-split rule's results all share a severity, so its `defaultConfiguration.level`, `security-severity` and recommendation in `help` come from its first result.
 - **Only rules with results are listed**, sorted by ID; `ruleIndex` points into that list.
 - Results are in file, line, rule order, so the output is stable for diffs. An empty scan still writes `"results": []` and `"rules": []`, because GitHub rejects a log without them.
 - Each result's properties carry `shorstop:status`, `severity`, `confidence`, `asset` and `purl`, for anyone post-processing the log.
@@ -702,7 +708,7 @@ The alert text is what a reviewer reads on a pull request, so it says everything
 
 ### Tests: `sarif_test.go`
 - **Validation against the OASIS-published SARIF 2.1.0 schema** (errata 01, `testdata/sarif/`, draft-04, compiled offline with the same validator as the CBOM). Like the CBOM test, **`TestSARIFOfAllFixturesIsValid`** renders every finding from every fixture, and it also checks every emitted rule ID has a description.
-- **`TestSARIFGolden`** (`testdata/report/sarif.golden.json`), **`TestSARIFSemantics`** (info left out, worst severity on the rule, `ruleIndex` correct, URI escaping, no region for binary files), **`TestFingerprintIgnoresLine`**, and **`TestSARIFEmpty`**.
+- **`TestSARIFGolden`** (`testdata/report/sarif.golden.json`), **`TestSARIFSemantics`** (info left out, one SARIF rule per severity with its own `security-severity`, `shorstop:rule` and catalog description, `ruleIndex` correct, URI escaping, no region for binary files), **`TestFingerprintIgnoresLine`**, and **`TestSARIFEmpty`**.
 
 ---
 

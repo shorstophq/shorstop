@@ -10,7 +10,7 @@
           "informationUri": "https://github.com/shorstophq/shorstop",
           "rules": [
             {
-              "id": "cert-public-key",
+              "id": "cert-public-key/high",
               "shortDescription": {
                 "text": "A certificate's public key; its algorithm and size decide its quantum risk."
               },
@@ -27,32 +27,12 @@
                   "cryptography",
                   "post-quantum"
                 ],
+                "shorstop:rule": "cert-public-key",
                 "security-severity": "8.0"
               }
             },
             {
-              "id": "cert-signature",
-              "shortDescription": {
-                "text": "The algorithm a certificate's issuer signed it with."
-              },
-              "help": {
-                "text": "The algorithm a certificate's issuer signed it with.\n\nRecommendation: Plan a migration of signatures to ML-DSA (FIPS 204) or SLH-DSA (FIPS 205).",
-                "markdown": "The algorithm a certificate's issuer signed it with.\n\n**Recommendation:** Plan a migration of signatures to ML-DSA (FIPS 204) or SLH-DSA (FIPS 205)."
-              },
-              "defaultConfiguration": {
-                "level": "warning"
-              },
-              "properties": {
-                "tags": [
-                  "security",
-                  "cryptography",
-                  "post-quantum"
-                ],
-                "security-severity": "5.5"
-              }
-            },
-            {
-              "id": "cert-signature-hash",
+              "id": "cert-signature-hash/critical",
               "shortDescription": {
                 "text": "The hash inside a certificate's signature algorithm; MD5 and SHA-1 signatures can be forged."
               },
@@ -69,11 +49,34 @@
                   "cryptography",
                   "post-quantum"
                 ],
+                "shorstop:rule": "cert-signature-hash",
                 "security-severity": "9.5"
               }
             },
             {
-              "id": "dep-npm-node-forge",
+              "id": "cert-signature/medium",
+              "shortDescription": {
+                "text": "The algorithm a certificate's issuer signed it with."
+              },
+              "help": {
+                "text": "The algorithm a certificate's issuer signed it with.\n\nRecommendation: Plan a migration of signatures to ML-DSA (FIPS 204) or SLH-DSA (FIPS 205).",
+                "markdown": "The algorithm a certificate's issuer signed it with.\n\n**Recommendation:** Plan a migration of signatures to ML-DSA (FIPS 204) or SLH-DSA (FIPS 205)."
+              },
+              "defaultConfiguration": {
+                "level": "warning"
+              },
+              "properties": {
+                "tags": [
+                  "security",
+                  "cryptography",
+                  "post-quantum"
+                ],
+                "shorstop:rule": "cert-signature",
+                "security-severity": "5.5"
+              }
+            },
+            {
+              "id": "dep-npm-node-forge/low",
               "shortDescription": {
                 "text": "node-forge: pure-JS RSA, X.509, TLS, AES, 3DES, RC2, MD5 and SHA-1."
               },
@@ -90,11 +93,12 @@
                   "cryptography",
                   "post-quantum"
                 ],
+                "shorstop:rule": "dep-npm-node-forge",
                 "security-severity": "3.0"
               }
             },
             {
-              "id": "dep-npm-node-rsa",
+              "id": "dep-npm-node-rsa/low",
               "shortDescription": {
                 "text": "node-rsa: RSA encryption and signatures; broken by Shor's algorithm."
               },
@@ -111,11 +115,12 @@
                   "cryptography",
                   "post-quantum"
                 ],
+                "shorstop:rule": "dep-npm-node-rsa",
                 "security-severity": "3.0"
               }
             },
             {
-              "id": "generic-aes-cipher-string",
+              "id": "generic-aes-cipher-string/high",
               "shortDescription": {
                 "text": "An AES cipher name with key size and mode, such as aes-256-cbc (OpenSSL, Node, PHP, Ruby, configs)."
               },
@@ -132,11 +137,12 @@
                   "cryptography",
                   "post-quantum"
                 ],
+                "shorstop:rule": "generic-aes-cipher-string",
                 "security-severity": "8.0"
               }
             },
             {
-              "id": "generic-rsa-bits",
+              "id": "generic-rsa-bits/high",
               "shortDescription": {
                 "text": "An RSA key-size string such as RSA-2048 or rsa:4096."
               },
@@ -153,11 +159,12 @@
                   "cryptography",
                   "post-quantum"
                 ],
+                "shorstop:rule": "generic-rsa-bits",
                 "security-severity": "8.0"
               }
             },
             {
-              "id": "go-rsa-generate-key",
+              "id": "go-rsa-generate-key/high",
               "shortDescription": {
                 "text": "Generates an RSA key; the key size is read from the call."
               },
@@ -174,11 +181,12 @@
                   "cryptography",
                   "post-quantum"
                 ],
+                "shorstop:rule": "go-rsa-generate-key",
                 "security-severity": "8.0"
               }
             },
             {
-              "id": "private-key-committed",
+              "id": "private-key-committed/critical",
               "shortDescription": {
                 "text": "A private key, or a key store that holds them, committed to the repository."
               },
@@ -195,11 +203,12 @@
                   "cryptography",
                   "post-quantum"
                 ],
+                "shorstop:rule": "private-key-committed",
                 "security-severity": "9.5"
               }
             },
             {
-              "id": "tls-protocol-version",
+              "id": "tls-protocol-version/high",
               "shortDescription": {
                 "text": "A TLS or SSL version enabled in server configuration."
               },
@@ -216,6 +225,7 @@
                   "cryptography",
                   "post-quantum"
                 ],
+                "shorstop:rule": "tls-protocol-version",
                 "security-severity": "8.0"
               }
             }
@@ -224,7 +234,7 @@
       },
       "results": [
         {
-          "ruleId": "generic-rsa-bits",
+          "ruleId": "generic-rsa-bits/high",
           "ruleIndex": 6,
           "level": "error",
           "message": {
@@ -257,7 +267,7 @@
           }
         },
         {
-          "ruleId": "go-rsa-generate-key",
+          "ruleId": "go-rsa-generate-key/high",
           "ruleIndex": 7,
           "level": "error",
           "message": {
@@ -290,7 +300,7 @@
           }
         },
         {
-          "ruleId": "generic-aes-cipher-string",
+          "ruleId": "generic-aes-cipher-string/high",
           "ruleIndex": 5,
           "level": "error",
           "message": {
@@ -320,7 +330,7 @@
           }
         },
         {
-          "ruleId": "cert-public-key",
+          "ruleId": "cert-public-key/high",
           "ruleIndex": 0,
           "level": "error",
           "message": {
@@ -350,38 +360,8 @@
           }
         },
         {
-          "ruleId": "cert-signature",
+          "ruleId": "cert-signature-hash/critical",
           "ruleIndex": 1,
-          "level": "warning",
-          "message": {
-            "text": "RSA (QUANTUM_VULNERABLE, medium). RSA signatures can be forged with Shor's algorithm on a large quantum computer. Plan a migration of signatures to ML-DSA (FIPS 204) or SLH-DSA (FIPS 205)."
-          },
-          "locations": [
-            {
-              "physicalLocation": {
-                "artifactLocation": {
-                  "uri": "ca.pem",
-                  "uriBaseId": "%SRCROOT%"
-                },
-                "region": {
-                  "startLine": 1
-                }
-              }
-            }
-          ],
-          "partialFingerprints": {
-            "shorstop/v1": "246a92be01797444ec3a0696854470d8"
-          },
-          "properties": {
-            "shorstop:status": "QUANTUM_VULNERABLE",
-            "shorstop:severity": "medium",
-            "shorstop:confidence": "high",
-            "shorstop:asset": "RSA"
-          }
-        },
-        {
-          "ruleId": "cert-signature-hash",
-          "ruleIndex": 2,
           "level": "error",
           "message": {
             "text": "SHA-1 (BROKEN, critical). SHA-1 has practical collision attacks: signatures and integrity checks that rely on it can be forged. Use SHA-256 or stronger (SHA-384, SHA-3)."
@@ -410,7 +390,37 @@
           }
         },
         {
-          "ruleId": "private-key-committed",
+          "ruleId": "cert-signature/medium",
+          "ruleIndex": 2,
+          "level": "warning",
+          "message": {
+            "text": "RSA (QUANTUM_VULNERABLE, medium). RSA signatures can be forged with Shor's algorithm on a large quantum computer. Plan a migration of signatures to ML-DSA (FIPS 204) or SLH-DSA (FIPS 205)."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "ca.pem",
+                  "uriBaseId": "%SRCROOT%"
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "shorstop/v1": "246a92be01797444ec3a0696854470d8"
+          },
+          "properties": {
+            "shorstop:status": "QUANTUM_VULNERABLE",
+            "shorstop:severity": "medium",
+            "shorstop:confidence": "high",
+            "shorstop:asset": "RSA"
+          }
+        },
+        {
+          "ruleId": "private-key-committed/critical",
           "ruleIndex": 8,
           "level": "error",
           "message": {
@@ -443,7 +453,7 @@
           }
         },
         {
-          "ruleId": "tls-protocol-version",
+          "ruleId": "tls-protocol-version/high",
           "ruleIndex": 9,
           "level": "error",
           "message": {
@@ -473,7 +483,7 @@
           }
         },
         {
-          "ruleId": "dep-npm-node-rsa",
+          "ruleId": "dep-npm-node-rsa/low",
           "ruleIndex": 4,
           "level": "note",
           "message": {
@@ -504,7 +514,7 @@
           }
         },
         {
-          "ruleId": "dep-npm-node-rsa",
+          "ruleId": "dep-npm-node-rsa/low",
           "ruleIndex": 4,
           "level": "note",
           "message": {
@@ -535,7 +545,7 @@
           }
         },
         {
-          "ruleId": "dep-npm-node-forge",
+          "ruleId": "dep-npm-node-forge/low",
           "ruleIndex": 3,
           "level": "note",
           "message": {
