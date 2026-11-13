@@ -988,9 +988,12 @@ Returns subexpression *i*'s text from a `FindAllSubmatchIndex` location, if it t
 ### `func matchSegments(pat, parts) bool`
 - **What it does:** segment-by-segment match with `**` = zero or more segments.
 - **Decisions & tradeoffs:**
-  - Recursive with backtracking at each `**`: simple and obviously correct. Worst case is exponential with many `**` in one pattern (e.g. `**/a/**/b/**/c`), but real patterns have one or two, and paths are shallow.
+  - *Correction (Phase 6):* this was first recursive backtracking at each `**`, accepted as "exponential only with many `**`, which real patterns don't have". That missed who writes the patterns: `.gitignore` files come from the scanned repository, so a pull request controls them, and ShorStop runs in CI on pull requests. Measured: `**/**/**/**/**/**/**/**/z` on a tree 30 directories deep took 6 s, and ten `**` never finished. A one-line `.gitignore` could hang the scan.
+  - **Now memoized:** each (pattern position, path position) pair is decided once, so the work is bounded by len(pattern) × len(path)² `path.Match` calls; 25 `**` take 0.07 s for the whole scan. *Option rejected:* collapsing consecutive `**` at parse time only. It fixes `**/**/**` but not `**/a/**/a/**/a/…` on a path of `a`s, which backtracks just as badly.
+  - **Patterns without `**` skip the memo** (one segment against one segment, no allocation). Those are most anchored patterns, and this function runs for every path against every anchored rule.
   - Trailing `/**` requires at least one more segment, so `abc/**` matches everything *inside* `abc` but not `abc` itself (git's documented behaviour).
-- **Data structures:** sub-slicing (`parts[i:]`) shares the backing array, so recursion allocates nothing.
+- **Data structures:** the memo is one `[]int8` of (len(pattern)+1) × (len(path)+1) entries (unknown, no, yes), allocated per call. Paths are a few dozen segments deep at most, so it is a few hundred bytes.
+- **Tests:** `TestMatchSegmentsManyGlobstars` (25 `**` against a 60-deep path); `FuzzIgnore` compares it with the original backtracking matcher (kept in the test file as `naiveMatchSegments`) for patterns with up to three `**`, where backtracking is still fast.
 
 ### `func lastMatch(rules, parts, isDir) (ignored, matched bool)`
 - Iterates rules **from last to first** and returns on the first hit. Gitignore says the last matching rule wins, so scanning backwards lets us stop early instead of always scanning every rule.
@@ -1162,6 +1165,35 @@ ShorStop dogfoods its own config. A crypto scanner's source is full of algorithm
 - **`TestScanLargeTree`:** the plan's Phase 1 acceptance test (100k files). It only runs with `SHORSTOP_LARGE_TEST=1`, because creating 100k files takes about a minute under `-race`, which is too slow for every CI run.
 - **`BenchmarkScan`:** baseline for Phase 6 tuning. Uses `b.Loop()` (Go 1.24+), which handles timer resets and keeps the compiler from optimising the work away.
 
+### Fuzz tests (Phase 6)
+**Why:** ShorStop's main job is scanning code it doesn't trust, often a stranger's pull request in CI. Every parser reads attacker-controlled bytes. A panic in a detector is caught per file (`runDetector`), but that file's findings are then lost, which is a way to hide crypto from the scan. A panic anywhere else, or a hang, stops the scan entirely.
+
+**Targets**, one per parser that reads repository content. Go fuzzes one target per `go test` run.
+
+| Target | Input | Checks |
+|---|---|---|
+| `detect/cert` `FuzzDetect` | PEM, DER, SSH public keys | detector contract (below) |
+| `detect/config` `FuzzDetect` | nginx/Apache/HAProxy/OpenSSL/stunnel/PostgreSQL configs, `sshd_config`, Kubernetes YAML | detector contract |
+| `detect/deps` `FuzzDetect` | 18 manifest and lockfile names (JSON, YAML, TOML, XML, line formats) | detector contract |
+| `detect/goast` `FuzzDetect` | Go source, including files that don't parse | detector contract |
+| `detect/regex` `FuzzDetect` | source in each language the rule pack covers | detector contract |
+| `baseline` `FuzzParse` | `--baseline` SARIF or CBOM | no panic |
+| `settings` `FuzzParse` | `.shorstop.yaml` | no panic |
+| `rules` `FuzzParse` | a rule file, plus a line to match | a pack that parses can also match without panicking |
+| `suppress` `FuzzApply` | file content with `shorstop:ignore` comments | every finding is kept; a suppression only ever comes from the finding's own line or the line above |
+| `crawler` `FuzzIgnore` | `.gitignore` content and a path | deterministic; the memoized `**` matcher agrees with backtracking |
+
+- **Detector targets take `(name uint8, content []byte)`.** The file name decides which parser runs (`pom.xml` vs `yarn.lock`, `.der` vs `.pem`), so it is picked from a fixed list by index. A free-form name string would spend most of the fuzzer's time on names no parser accepts.
+- **`detecttest.Check`** (`internal/detect/detecttest`) holds the contract every detector promises, so all five targets test the same thing:
+  - `Content` isn't modified (detectors share one buffer);
+  - the same input gives the same findings (catches map-order dependence);
+  - every finding has a rule ID, an algorithm from `rules.Algorithms` or none, a line inside the file (0 for binary files), and a snippet of valid UTF-8, one line, at most `detect.MaxSnippet` runes.
+  - Errors are allowed: most fuzzed input is malformed, and saying so is correct.
+  - `detecttest.File` sets `Binary` the way the crawler does (a NUL in the first 8000 bytes), so the DER path is reached only as it would be in a scan.
+- **Seeds are the existing fixtures** (`testdata/fixtures/...`), so fuzzing starts from real files of each kind. Seeds and any saved failures (`testdata/fuzz/<Target>/`) run as ordinary test cases in every `go test`.
+- **`-fuzzminimizetime 5s`:** Go shrinks every new interesting input before using it, for up to 60 s by default. With large seeds (the SARIF and CBOM goldens, the 66 KB rule pack) `baseline` and `rules` spent 27 of 30 s shrinking, with zero new executions; at 2–5 s they run at 20,000–50,000 inputs/s. Measured before choosing it, because a stall can also mean a parser hanging on one input.
+- **CI:** a `fuzz` job runs each target for 30 s, as a matrix with `fail-fast: false` so one failure doesn't hide the others. A failing input is printed in the log rather than uploaded as an artifact, which avoids another third-party action. `make fuzz` runs them all locally in turn (`FUZZTIME`, default 30 s).
+
 ### `internal/crawler/ignore_test.go`
 - One table of `{pattern, path, isDir, want}` covering each gitignore rule. A failure names the exact pattern and path.
 - The stack test pushes and pops **in real walk order**, because `popTo` relies on depth-first order. (An earlier draft pushed out of order and failed for that reason, not because of a bug.)
@@ -1196,6 +1228,7 @@ ShorStop dogfoods its own config. A crypto scanner's source is full of algorithm
 - `CGO_ENABLED=0`: static binary for `FROM scratch` images, easy cross-compiling.
 - `-trimpath`: strips local paths from the binary, for privacy and reproducibility.
 - No `-s -w` stripping in `make build`: local binaries keep their symbol table and DWARF, so debuggers (`dlv`) and `go tool nm` work. *Correction:* this entry first said stripping would make panic stack traces unreadable. That's wrong: Go's runtime keeps its own line tables (pclntab), so stripped binaries still print file:line traces. Release builds strip (see `.goreleaser.yaml`).
+- `fuzz` runs every fuzz target in turn for `FUZZTIME` (default 30 s); see "Fuzz tests".
 - `lint` and `release-snapshot` print an install hint when the tool is missing. `release-snapshot` runs GoReleaser with `--skip=sign,sbom`, because cosign and syft are installed only in the release workflow.
 
 ### `.golangci.yml`
@@ -1220,6 +1253,7 @@ The `standard` set plus `errorlint`, `misspell`, `unconvert`, `gocritic`. `gosec
 - Moved to the current majors while pinning (checkout v7, setup-go v7, golangci-lint-action v9). I read the release notes first: the changes are a new Node.js runtime, plus checkout v7 refusing fork PRs under `pull_request_target`. That's a security fix, and CI uses `pull_request`.
 - **golangci-lint itself is pinned to `v2.15.0`**, the version run locally, instead of `latest`, so a new linter release can't fail CI with no change to the code.
 - **`release-check` job:** builds every release platform with GoReleaser (`--snapshot`, no publishing) on every push, so a broken release config, or code that doesn't compile for Windows, fails here rather than on release day. It sets up buildx, the same builder the release uses, so the container images are built and checked too.
+- **`fuzz` job (Phase 6):** each fuzz target for 30 s per push; see "Fuzz tests".
 - All workflows pass **actionlint** v1.7.12.
 
 ### `.goreleaser.yaml` (Phase 5)

@@ -1,6 +1,8 @@
 package crawler
 
 import (
+	"path"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -120,4 +122,48 @@ func TestParseExcludes(t *testing.T) {
 	if _, err := parseExcludes([]string{"[bad"}); err == nil {
 		t.Error("malformed exclude accepted, want error")
 	}
+}
+
+// TestMatchSegmentsManyGlobstars: a .gitignore from a pull request must not
+// be able to hang the scan. With backtracking, 10 "**" segments against a
+// 30-deep path never finished; memoized it is microseconds.
+func TestMatchSegmentsManyGlobstars(t *testing.T) {
+	deep := strings.Split(strings.Repeat("a/", 60)+"f", "/")
+	stars := strings.Split(strings.Repeat("**/", 25), "/")
+	stars = stars[:len(stars)-1]
+	if matchSegments(append(slices.Clone(stars), "z"), deep) {
+		t.Error("matched a path without a z segment")
+	}
+	if !matchSegments(append(slices.Clone(stars), "f"), deep) {
+		t.Error("did not match a path ending in f")
+	}
+	if !matchSegments(append(append(slices.Clone(stars), "a", "**", "a"), "**"), deep) {
+		t.Error("did not match through the middle")
+	}
+}
+
+// naiveMatchSegments is the original backtracking matcher: exponential in
+// the number of "**", but obviously right. FuzzIgnore compares against it.
+func naiveMatchSegments(pat, parts []string) bool {
+	for len(pat) > 0 {
+		if pat[0] == "**" {
+			if len(pat) == 1 {
+				return len(parts) > 0
+			}
+			for i := 0; i <= len(parts); i++ {
+				if naiveMatchSegments(pat[1:], parts[i:]) {
+					return true
+				}
+			}
+			return false
+		}
+		if len(parts) == 0 {
+			return false
+		}
+		if ok, _ := path.Match(pat[0], parts[0]); !ok {
+			return false
+		}
+		pat, parts = pat[1:], parts[1:]
+	}
+	return len(parts) == 0
 }

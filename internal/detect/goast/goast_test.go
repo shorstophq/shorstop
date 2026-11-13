@@ -18,7 +18,7 @@ var update = flag.Bool("update", false, "rewrite the .golden files from the curr
 
 const fixtures = "../../../testdata/fixtures/go"
 
-func builtin(t *testing.T) *Detector {
+func builtin(t testing.TB) *Detector {
 	t.Helper()
 	p, err := rules.Builtin()
 	if err != nil {

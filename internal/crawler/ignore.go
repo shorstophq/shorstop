@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path"
+	"slices"
 	"strings"
 )
 
@@ -89,29 +90,64 @@ func (r rule) match(parts []string, isDir bool) bool {
 
 // matchSegments matches pattern segments against path segments, treating a
 // "**" segment as zero or more path segments.
+//
+// Patterns come from .gitignore files in the scanned repository, so a pull
+// request controls them. Plain backtracking over "**" is exponential in the
+// number of "**" segments: "**/**/**/**/**/**/**/**/x" took 6 s on a tree
+// 30 directories deep, and ten of them never finished. Each (pattern
+// position, path position) pair is therefore decided once and remembered,
+// which bounds the work at len(pat) × len(parts)² path.Match calls.
 func matchSegments(pat, parts []string) bool {
-	for len(pat) > 0 {
-		if pat[0] == "**" {
-			if len(pat) == 1 {
-				// Trailing "/**" matches everything inside, but not the directory itself.
-				return len(parts) > 0
+	if !slices.Contains(pat, "**") {
+		// No "**": one segment per segment, no memo needed (the common case).
+		if len(pat) != len(parts) {
+			return false
+		}
+		for i := range pat {
+			if ok, _ := path.Match(pat[i], parts[i]); !ok {
+				return false
 			}
-			for i := 0; i <= len(parts); i++ {
-				if matchSegments(pat[1:], parts[i:]) {
-					return true
-				}
-			}
-			return false
 		}
-		if len(parts) == 0 {
-			return false
-		}
-		if ok, _ := path.Match(pat[0], parts[0]); !ok {
-			return false
-		}
-		pat, parts = pat[1:], parts[1:]
+		return true
 	}
-	return len(parts) == 0
+
+	const (
+		unknown int8 = iota
+		no
+		yes
+	)
+	width := len(parts) + 1
+	memo := make([]int8, (len(pat)+1)*width)
+	var match func(pi, si int) bool
+	match = func(pi, si int) bool {
+		k := pi*width + si
+		if memo[k] != unknown {
+			return memo[k] == yes
+		}
+		var ok bool
+		switch {
+		case pi == len(pat):
+			ok = si == len(parts)
+		case pat[pi] == "**" && pi == len(pat)-1:
+			// Trailing "/**" matches everything inside, but not the directory itself.
+			ok = si < len(parts)
+		case pat[pi] == "**":
+			for i := si; i <= len(parts) && !ok; i++ {
+				ok = match(pi+1, i)
+			}
+		case si == len(parts):
+			ok = false
+		default:
+			m, _ := path.Match(pat[pi], parts[si])
+			ok = m && match(pi+1, si+1)
+		}
+		memo[k] = no
+		if ok {
+			memo[k] = yes
+		}
+		return ok
+	}
+	return match(0, 0)
 }
 
 // lastMatch applies gitignore precedence within one rule list: the last

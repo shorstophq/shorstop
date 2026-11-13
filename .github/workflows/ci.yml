@@ -26,6 +26,38 @@ jobs:
       - run: go test -race ./...
       - run: make build
 
+  # Every fuzz target for 30 s on each push. The seed corpus already runs in
+  # `go test`; this looks for new inputs. A failing input is printed, so it
+  # can be copied into the package's testdata/fuzz/ as a regression test.
+  fuzz:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - detect/cert:FuzzDetect
+          - detect/config:FuzzDetect
+          - detect/deps:FuzzDetect
+          - detect/goast:FuzzDetect
+          - detect/regex:FuzzDetect
+          - baseline:FuzzParse
+          - settings:FuzzParse
+          - rules:FuzzParse
+          - suppress:FuzzApply
+          - crawler:FuzzIgnore
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Fuzz
+        env:
+          TARGET: ${{ matrix.target }}
+        run: go test "./internal/${TARGET%%:*}" -run '^$' -fuzz "^${TARGET##*:}\$" -fuzztime 30s -fuzzminimizetime 5s
+      - name: Show the failing input
+        if: failure()
+        run: find internal -path '*/testdata/fuzz/*' -type f -newer go.mod -print -exec cat {} \;
+
   lint:
     runs-on: ubuntu-latest
     steps:
