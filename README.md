@@ -1,6 +1,6 @@
 # shorstophq/shorstop metrics
 
-Recorded daily by `.github/workflows/metrics.yml` on `main` (`scripts/metrics`). Latest: **2026-11-18** (UTC).
+Recorded daily by `.github/workflows/metrics.yml` on `main` (`scripts/metrics`). Latest: **2026-11-19** (UTC).
 
 | Metric | Now | 7 days | 30 days |
 |---|---:|---:|---:|
@@ -12,8 +12,8 @@ Recorded daily by `.github/workflows/metrics.yml` on `main` (`scripts/metrics`).
 
 ## Traffic, last 14 days
 
-- Views: 111
-- Clones: 541
+- Views: 112
+- Clones: 562
 
 ## Top referrers, last 14 days
 
