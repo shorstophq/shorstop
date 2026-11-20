@@ -1,6 +1,6 @@
 # shorstophq/shorstop metrics
 
-Recorded daily by `.github/workflows/metrics.yml` on `main` (`scripts/metrics`). Latest: **2026-11-19** (UTC).
+Recorded daily by `.github/workflows/metrics.yml` on `main` (`scripts/metrics`). Latest: **2026-11-20** (UTC).
 
 | Metric | Now | 7 days | 30 days |
 |---|---:|---:|---:|
@@ -12,13 +12,13 @@ Recorded daily by `.github/workflows/metrics.yml` on `main` (`scripts/metrics`).
 
 ## Traffic, last 14 days
 
-- Views: 112
-- Clones: 562
+- Views: 114
+- Clones: 560
 
 ## Top referrers, last 14 days
 
 | Referrer | Views | Unique visitors |
 |---|---:|---:|
-| github.com | 7 | 1 |
+| github.com | 8 | 1 |
 
 Not measured: Docker image pulls (ghcr.io publishes no pull count) and Action installs (the Marketplace publishes none). Homebrew installs are inside the archive downloads, since the cask downloads the release archive.
