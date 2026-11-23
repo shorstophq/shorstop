@@ -1,19 +1,19 @@
 # shorstophq/shorstop metrics
 
-Recorded daily by `.github/workflows/metrics.yml` on `main` (`scripts/metrics`). Latest: **2026-11-22** (UTC).
+Recorded daily by `.github/workflows/metrics.yml` on `main` (`scripts/metrics`). Latest: **2026-11-23** (UTC).
 
 | Metric | Now | 7 days | 30 days |
 |---|---:|---:|---:|
-| Stars | 2 | – | – |
-| Forks | 1 | – | – |
-| Watchers | 1 | – | – |
-| Release archive downloads (all releases) | 43 | – | – |
-| checksums.txt downloads (≈ Action runs + verifications) | 19 | – | – |
+| Stars | 2 | +0 | – |
+| Forks | 1 | +0 | – |
+| Watchers | 1 | +0 | – |
+| Release archive downloads (all releases) | 43 | +9 | – |
+| checksums.txt downloads (≈ Action runs + verifications) | 19 | +3 | – |
 
 ## Traffic, last 14 days
 
-- Views: 119
-- Clones: 586
+- Views: 118
+- Clones: 587
 
 ## Top referrers, last 14 days
 
